@@ -93,6 +93,20 @@
             return await _healthDataRepository.GetConnectionStatusAsync(userId, idToken);
         }
 
+        public async Task<string> RegisterUserAsync(string email, string password, string name)
+        {
+            return await _healthDataRepository.RegisterUserAsync(email, password, name);
+        }
+
+        public async Task<string> LoginUserAsync(string email, string password)
+        {
+            return await _healthDataRepository.LoginUserAsync(email, password);
+        }
+        public async Task<List<MonitorUserModel>> GetMonitoringUsersAsync(string currentUserId, string idToken)
+        {
+            return await _healthDataRepository.GetMonitoringUsersAsync(currentUserId, idToken);
+        }
+
     }
 }
 

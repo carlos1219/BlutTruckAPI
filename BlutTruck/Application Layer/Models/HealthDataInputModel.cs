@@ -8,40 +8,86 @@
 
         public List<int?> HeartRates { get; set; } = new List<int?>();
 
-        public double? AvgHeartRate
-        {
-            get
-            {
-                var validRates = HeartRates?.Where(h => h.HasValue).Select(h => h.Value);
-                return validRates?.Any() == true ? validRates.Average() : null;
-            }
-        }
+        public List<HeartRateDataPoint> HeartRateData { get; set; } = new List<HeartRateDataPoint>();
 
-        public double? MinHeartRate
-        {
-            get
-            {
-                var validRates = HeartRates?.Where(h => h.HasValue).Select(h => h.Value);
-                return validRates?.Any() == true ? validRates.Min() : null;
-            }
-        }
+        public double? AvgHeartRate => HeartRates?.Where(x => x.HasValue).Select(x => x.Value).Any() == true
+            ? HeartRates.Where(x => x.HasValue).Select(x => x.Value).Average()
+            : null;
 
-        public double? MaxHeartRate
-        {
-            get
-            {
-                var validRates = HeartRates?.Where(h => h.HasValue).Select(h => h.Value);
-                return validRates?.Any() == true ? validRates.Max() : null;
-            }
-        }
+        public double? MinHeartRate => HeartRates?.Where(x => x.HasValue).Select(x => x.Value).Any() == true
+            ? HeartRates.Where(x => x.HasValue).Select(x => x.Value).Min()
+            : null;
+
+        public double? MaxHeartRate => HeartRates?.Where(x => x.HasValue).Select(x => x.Value).Any() == true
+            ? HeartRates.Where(x => x.HasValue).Select(x => x.Value).Max()
+            : null;
+
         public double? RestingHeartRate { get; set; }
         public double? Weight { get; set; }
         public double? Height { get; set; }
-        public double? BloodPressureSystolic { get; set; }
-        public double? BloodPressureDiastolic { get; set; }
-        public double? OxygenSaturation { get; set; }
-        public double? BloodGlucose { get; set; }
+
+        public List<BloodPressureDataPoint> BloodPressureData { get; set; } = new List<BloodPressureDataPoint>();
+
+        public List<OxygenSaturationDataPoint> OxygenSaturationData { get; set; } = new List<OxygenSaturationDataPoint>();
+
+        public List<BloodGlucoseDataPoint> BloodGlucoseData { get; set; } = new List<BloodGlucoseDataPoint>();
+
         public double? BodyTemperature { get; set; }
-        public double? RespiratoryRate { get; set; }
+        public List<TemperatureDataPoint> TemperatureData { get; set; } = new List<TemperatureDataPoint>();
+
+        public List<RespiratoryRateDataPoint> RespiratoryRateData { get; set; } = new List<RespiratoryRateDataPoint>();
+
+        public List<SleepSessionDataPoint> SleepData { get; set; } = new List<SleepSessionDataPoint>();
+    }
+
+    public class HeartRateDataPoint
+    {
+        public DateTime Time { get; set; }
+        public int BPM { get; set; }
+    }
+
+    public class TemperatureDataPoint
+    {
+        public DateTime Time { get; set; }
+        public double Temperature { get; set; }
+    }
+
+    public class BloodPressureDataPoint
+    {
+        public DateTime Time { get; set; }
+        public double Systolic { get; set; }
+        public double Diastolic { get; set; }
+    }
+
+    public class OxygenSaturationDataPoint
+    {
+        public DateTime Time { get; set; }
+        public double Percentage { get; set; }
+    }
+
+    public class BloodGlucoseDataPoint
+    {
+        public DateTime Time { get; set; }
+        public double BloodGlucose { get; set; }
+    }
+
+    public class RespiratoryRateDataPoint
+    {
+        public DateTime Time { get; set; }
+        public double Rate { get; set; }
+    }
+
+    public class SleepSessionDataPoint
+    {
+        public DateTime StartTime { get; set; }
+        public DateTime EndTime { get; set; }
+        public List<SleepStageDataPoint>? Stages { get; set; }
+    }
+
+    public class SleepStageDataPoint
+    {
+        public string Type { get; set; } = string.Empty;
+        public DateTime StartTime { get; set; }
+        public DateTime EndTime { get; set; }
     }
 }

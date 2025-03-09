@@ -28,10 +28,19 @@ namespace BlutTruck.Data_Access_Layer.Repositories
         private const string AUTH_DOMAIN = "proyectocsharp-tfg.firebaseapp.com";  // Tu dominio de Firebase
         private readonly IOptions<ApiSettings> _apiSettings;
         private readonly string _databaseUrl = "https://proyectocsharp-tfg-default-rtdb.europe-west1.firebasedatabase.app/";
+        private readonly FirebaseAuthClient _authClient;
+        
 
         public HealthDataRepository(IOptions<ApiSettings> apiSettings)
         {
             _apiSettings = apiSettings ?? throw new ArgumentNullException(nameof(apiSettings));
+            var config = new FirebaseAuthConfig
+            {
+                ApiKey = API_KEY,
+                AuthDomain = AUTH_DOMAIN,
+                Providers = new FirebaseAuthProvider[] { new EmailProvider() }
+            };
+            _authClient = new FirebaseAuthClient(config);
         }
 
         public async Task<string> GetTokenAsync()
@@ -420,10 +429,6 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
         }
 
-
-        /// <summary>
-        /// Registra una conexión entre dos usuarios en Firebase.
-        /// </summary>
         public async Task<string> RegisterConnectionAsync(string currentUserId, string connectedUserId, string idToken)
         {
             try
@@ -432,16 +437,33 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                     _databaseUrl,
                     new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
 
+                // Separar el ID del usuario y el flag de admin
+                var parts = connectedUserId.Split(";admin:");
+                var extractedUserId = parts[0];  // El ID real del usuario
+                var isAdmin = parts.Length > 1 && bool.TryParse(parts[1], out bool adminValue) ? adminValue : false;  // Extraer true/false
+
                 var connectionData = new Dictionary<string, string>
-            {
-                { "connectedAt", DateTime.UtcNow.ToString("o") },
-                { "connectedUserId", connectedUserId }
-            };
+        {
+            { "connectedAt", DateTime.UtcNow.ToString("o") },
+            { "connectedUserId", extractedUserId },
+            { "isAdmin", isAdmin.ToString() } // Guardamos el flag como string
+        };
 
-                var path = $"healthData/{currentUserId}/conexiones/{connectedUserId}";
-                await firebaseClient.Child(path).PutAsync(connectionData);
+                var monitorData = new Dictionary<string, string>
+        {
+            { "monitoredAt", DateTime.UtcNow.ToString("o") },
+            { "monitoringUserId", currentUserId }
+        };
 
-                return "Conexión registrada exitosamente";
+                // Guardar la conexión en el usuario actual
+                var pathConnection = $"healthData/{currentUserId}/conexiones/{extractedUserId}";
+                await firebaseClient.Child(pathConnection).PutAsync(connectionData);
+
+                // Guardar la referencia en el usuario conectado
+                var pathMonitor = $"healthData/{extractedUserId}/monitores/{currentUserId}";
+                await firebaseClient.Child(pathMonitor).PutAsync(monitorData);
+
+                return "Conexión registrada exitosamente y referencia inversa guardada";
             }
             catch (Exception ex)
             {
@@ -520,11 +542,93 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                     AvgHeartRate = healthData?.AvgHeartRate?.ToString() ?? "N/A"
                 };
 
+
                 connectedUsers.Add(connectedUser);
             }
 
             return connectedUsers;
         }
+
+        public async Task<string> RegisterUserAsync(string email, string password, string name)
+        {
+            try
+            {
+                var userCredential = await _authClient.CreateUserWithEmailAndPasswordAsync(email, password);
+                var user = userCredential.User;
+                return await user.GetIdTokenAsync(); // Devuelve solo el token seguro
+            }
+            catch (Firebase.Auth.FirebaseAuthException ex)
+            {
+                throw new Exception("Error al registrar el usuario: " + ex.Reason);
+            }
+        }
+
+        public async Task<string> LoginUserAsync(string email, string password)
+        {
+            try
+            {
+                var userCredential = await _authClient.SignInWithEmailAndPasswordAsync(email, password);
+                return await userCredential.User.GetIdTokenAsync(); // Devuelve solo el token seguro
+            }
+            catch (Firebase.Auth.FirebaseAuthException ex)
+            {
+                throw new Exception("Credenciales incorrectas");
+            }
+        }
+
+        public async Task<List<MonitorUserModel>> GetMonitoringUsersAsync(string currentUserId, string idToken)
+        {
+            var firebaseClient = new FirebaseClient(
+                _databaseUrl,
+                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+
+            // Obtener lista de usuarios que monitorean al usuario actual
+            var monitors = await firebaseClient
+                .Child("healthData")
+                .Child(currentUserId)
+                .Child("monitores")
+                .OnceAsync<object>();
+
+            if (monitors == null || !monitors.Any())
+                return new List<MonitorUserModel>();
+
+            var monitoringUsers = new List<MonitorUserModel>();
+
+            foreach (var monitor in monitors)
+            {
+                var monitoringUserId = monitor.Key;
+
+                // Obtener el correo electrónico del usuario monitor
+                string email = await GetUserEmailByIdAsync(monitoringUserId);
+
+                // Obtener datos personales del usuario monitor
+                var personalData = await firebaseClient
+                    .Child("healthData")
+                    .Child(monitoringUserId)
+                    .Child("datos_personales")
+                    .OnceSingleAsync<PersonalDataModel>();
+
+                var monitoringUser = new MonitorUserModel
+                {
+                    MonitoringUserId = monitoringUserId,
+                    Name = personalData?.Name ?? "No Name",
+                    PhotoURL = personalData?.PhotoURL ?? "No photo",
+                    Email = email
+                };
+
+                monitoringUsers.Add(monitoringUser);
+            }
+
+            return monitoringUsers;
+        }
+
+
+        public async Task<string> GetUserEmailByIdAsync(string userId)
+        {
+            UserRecord user = await FirebaseAuth.DefaultInstance.GetUserAsync(userId);
+            return user.Email;
+        }
+
     }
 }
 

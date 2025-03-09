@@ -6,6 +6,7 @@ using Application.Services;
 using BlutTruck.Application_Layer.Services;
 using static BlutTruck.Application_Layer.Models.PersonalDataModel;
 using Firebase.Database;
+using Firebase.Auth.Repository;
 
 namespace Api.Controllers
 {
@@ -82,6 +83,39 @@ namespace Api.Controllers
                 return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
             }
         }
+
+        [HttpGet("getMonitoringUsers")]
+        public async Task<IActionResult> GetMonitoringUsers([FromQuery] string currentUserId)
+        {
+            if (string.IsNullOrEmpty(currentUserId))
+            {
+                return BadRequest(new { Message = "El UserId es obligatorio." });
+            }
+
+            try
+            {
+                var token = await _healthDataService.AuthenticateAndGetTokenAsync();
+                if (string.IsNullOrEmpty(token))
+                {
+                    return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                }
+
+                var uid = await _healthDataService.VerifyUserTokenAsync(token);
+                if (uid == null)
+                {
+                    return Unauthorized(new { Message = "El token generado no es válido." });
+                }
+
+                var monitoringUsers = await _healthDataService.GetMonitoringUsersAsync(currentUserId, token);
+
+                return Ok(monitoringUsers);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
+            }
+        }
+
         [HttpDelete("deleteConnection")]
         public async Task<IActionResult> DeleteConnection([FromBody] ConnectionRequestModel request)
         {
@@ -111,11 +145,44 @@ namespace Api.Controllers
                 return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
             }
         }
-        public class ConnectionRequestModel
+        [HttpPost("register")]
+        public async Task<IActionResult> Register([FromBody] RegisterRequest request)
         {
-            public string CurrentUserId { get; set; }
-            public string ConnectedUserId { get; set; }
+            if (string.IsNullOrEmpty(request.Email) || string.IsNullOrEmpty(request.Password) || string.IsNullOrEmpty(request.Name))
+            {
+                return BadRequest(new { Message = "Todos los campos son obligatorios." });
+            }
+
+            try
+            {
+                var token = await _healthDataService.RegisterUserAsync(request.Email, request.Password, request.Name);
+                return Ok(new { Token = token, Message = "Registro exitoso." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = ex.Message });
+            }
         }
+
+        [HttpPost("login")]
+        public async Task<IActionResult> Login([FromBody] LoginRequest request)
+        {
+            if (string.IsNullOrEmpty(request.Email) || string.IsNullOrEmpty(request.Password))
+            {
+                return BadRequest(new { Message = "Correo y contraseña son obligatorios." });
+            }
+
+            try
+            {
+                var token = await _healthDataService.LoginUserAsync(request.Email, request.Password);
+                return Ok(new { Token = token, Message = "Inicio de sesión exitoso." });
+            }
+            catch (Exception ex)
+            {
+                return Unauthorized(new { Message = ex.Message });
+            }
+        }
+
 
         [HttpPost("save-profile/{userId}")]
         public async Task<IActionResult> SaveUserProfileAsync(

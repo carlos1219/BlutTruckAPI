@@ -55,5 +55,8 @@ namespace BlutTruck.Application_Layer.IServices
         Task<string> RegisterConnectionAsync(string currentUserId, string connectedUserId, string idToken);
         Task<string> DeleteConnectionAsync(string currentUserId, string connectedUserId, string idToken);
         Task<List<ConnectedUserModel>> GetConnectedUsersAsync(string currentUserId, string idToken);
+        Task<string> RegisterUserAsync(string email, string password, string name);
+        Task<string> LoginUserAsync(string email, string password);
+        Task<List<MonitorUserModel>> GetMonitoringUsersAsync(string currentUserId, string idToken);
     }
 }
