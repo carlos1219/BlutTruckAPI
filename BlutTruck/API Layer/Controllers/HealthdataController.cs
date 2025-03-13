@@ -7,6 +7,7 @@ using BlutTruck.Application_Layer.Services;
 using static BlutTruck.Application_Layer.Models.PersonalDataModel;
 using Firebase.Database;
 using Firebase.Auth.Repository;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Api.Controllers
 {
@@ -163,7 +164,7 @@ namespace Api.Controllers
                 return StatusCode(500, new { Message = ex.Message });
             }
         }
-
+        [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
@@ -174,12 +175,37 @@ namespace Api.Controllers
 
             try
             {
-                var token = await _healthDataService.LoginUserAsync(request.Email, request.Password);
-                return Ok(new { Token = token, Message = "Inicio de sesión exitoso." });
+                // Se asume que LoginUserAsync ahora retorna un objeto con Token y UserId
+                var loginResult = await _healthDataService.LoginUserAsync(request.Email, request.Password);
+                return Ok(new
+                {
+                    Token = loginResult.Token,
+                    UserId = loginResult.UserId,
+                    Message = "Inicio de sesión exitoso."
+                });
             }
             catch (Exception ex)
             {
                 return Unauthorized(new { Message = ex.Message });
+            }
+        }
+
+        [HttpPost("change")]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequestInputDTO request)
+        {
+            if ( string.IsNullOrEmpty(request.email))
+            {
+                return BadRequest(new { Message = "El token y la nueva contraseña son obligatorios." });
+            }
+
+            try
+            {
+                await _healthDataService.ChangePasswordAsync(request);
+                return Ok(new {Message = "Contraseña actualizada exitosamente." });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { Message = ex.Message });
             }
         }
 
@@ -499,6 +525,29 @@ namespace Api.Controllers
             {
                 return StatusCode(500, new { Message = $"Error al obtener los datos: {ex.Message}" });
             }
+        }
+        [HttpGet("get-pdf/{userId}")]
+        public async Task<IActionResult> DownloadPdf(string userId)
+        {
+            if (string.IsNullOrEmpty(userId))
+            {
+                return BadRequest(new { Message = "El UserId es requerido." });
+            }
+
+            var token = await _healthDataService.AuthenticateAndGetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+            }
+
+            var uid = await _healthDataService.VerifyUserTokenAsync(token);
+            if (uid == null)
+            {
+                return Unauthorized(new { Message = "El token generado no es válido." });
+            }
+
+            var pdfBytes = await _healthDataService.GeneratePdfAsync(userId, token);
+            return File(pdfBytes, "application/pdf", "datosSalud.pdf");
         }
 
         [HttpGet("get-connection/{userId}")]

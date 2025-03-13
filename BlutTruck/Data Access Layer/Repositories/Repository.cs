@@ -16,6 +16,9 @@ using Firebase.Auth.Providers;
 using Firebase.Database.Query;
 using Api.Controllers;
 using static BlutTruck.Application_Layer.Models.PersonalDataModel;
+using Microsoft.AspNetCore.Mvc;
+using iTextSharp.text;
+using iTextSharp.text.pdf;
 
 
 namespace BlutTruck.Data_Access_Layer.Repositories
@@ -141,7 +144,6 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
         }
 
-
         public async Task<HealthDataOutputModel> GetSelectDateHealthDataAsync(string userId, string dateKey, string idToken)
         {
             try
@@ -176,7 +178,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
         }
 
-        public async Task<object> GetFullHealthDataAsync(string userId, string idToken)
+        public async Task<FullDataOutputDTO> GetFullHealthDataAsync(string userId, string idToken)
         {
             try
             {
@@ -194,7 +196,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
                 if (personalData == null)
                 {
-                    return "Error: Los datos personales son nulos o no existen.";
+                    return null;
                 }
 
                 // Obtener datos de días
@@ -206,11 +208,11 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
                 if (daysData == null || daysData.Count == 0)
                 {
-                    return "Error: No se encontraron datos de días.";
+                    return null;
                 }
 
-                // Construir el objeto final
-                var result = new
+                // Construir el objeto final utilizando el DTO
+                var result = new FullDataOutputDTO
                 {
                     DatosPersonales = personalData,
                     Dias = daysData.ToDictionary(entry => entry.Key, entry => entry.Object)
@@ -220,13 +222,94 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
             catch (Firebase.Database.FirebaseException ex)
             {
-                return $"Error en Firebase: {ex.Message}";
+                // Aquí puedes registrar el error y/o lanzar la excepción según convenga
+                return null;
             }
             catch (Exception ex)
             {
-                return $"Error inesperado: {ex.Message}";
+                // Manejo de errores inesperados
+                return null;
             }
         }
+
+        public async Task<byte[]> GeneratePdfAsync(string userId, string idToken)
+        {
+            // Se obtiene el objeto con los datos completos.
+            FullDataOutputDTO fullData = await this.GetFullHealthDataAsync(userId, idToken);
+
+            // Si no se obtuvieron datos, se puede manejar el error según tu lógica (por ejemplo, lanzar una excepción)
+            if (fullData == null)
+            {
+                throw new Exception("No se encontraron datos para el usuario especificado.");
+            }
+
+            // Creamos el documento PDF en memoria
+            using (var ms = new MemoryStream())
+            {
+                Document document = new Document(PageSize.A4, 50, 50, 25, 25);
+                PdfWriter writer = PdfWriter.GetInstance(document, ms);
+                document.Open();
+
+                // ------------------------
+                // Sección: Datos Personales
+                // ------------------------
+                var headerFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 16);
+                document.Add(new Paragraph("Datos Personales", headerFont));
+                document.Add(new Paragraph($"Nombre: {fullData.DatosPersonales.Name}"));
+                document.Add(new Paragraph($"Fecha de nacimiento: {fullData.DatosPersonales.DateOfBirth}"));
+                document.Add(new Paragraph($"Altura: {fullData.DatosPersonales.Height}"));
+                document.Add(new Paragraph($"Peso: {fullData.DatosPersonales.Weight}"));
+                document.Add(new Paragraph($"Género: {fullData.DatosPersonales.Gender}"));
+                document.Add(new Paragraph(" ")); // Línea en blanco
+
+                // ------------------------
+                // Sección: Datos de Días
+                // ------------------------
+                document.Add(new Paragraph("Datos de Días", headerFont));
+
+                // Se asume que "Dias" es un diccionario donde la clave es la fecha (string)
+                // y el valor es un HealthDataOutputModel
+                foreach (var dia in fullData.Dias)
+                {
+                    string fecha = dia.Key;
+                    HealthDataOutputModel diaData = dia.Value;
+
+                    var subHeaderFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 14);
+                    document.Add(new Paragraph($"Fecha: {fecha}", subHeaderFont));
+                    document.Add(new Paragraph($"Pasos: {diaData.Steps}"));
+
+                    // Datos de Ritmo Cardíaco
+                    if (diaData.HeartRateData != null && diaData.HeartRateData.Any())
+                    {
+                        document.Add(new Paragraph("Datos de Ritmo Cardíaco:"));
+                        foreach (var hr in diaData.HeartRateData)
+                        {
+                            // Se asume que HeartRateDataPoint tiene propiedades Time y Bpm
+                            document.Add(new Paragraph($"Hora: {hr.Time} - BPM: {hr.BPM}"));
+                        }
+                    }
+
+                    // Datos de Temperatura
+                    if (diaData.TemperatureData != null && diaData.TemperatureData.Any())
+                    {
+                        document.Add(new Paragraph("Datos de Temperatura:"));
+                        foreach (var temp in diaData.TemperatureData)
+                        {
+                            // Se asume que TemperatureDataPoint tiene propiedades Time y Temperature
+                            document.Add(new Paragraph($"Hora: {temp.Time} - Temperatura: {temp.Temperature}"));
+                        }
+                    }
+
+                    document.Add(new Paragraph(" ")); // Espacio entre días
+                }
+
+                document.Close();
+                writer.Close();
+
+                return ms.ToArray();
+            }
+        }
+
 
         public async Task<bool> SaveUserProfileAsync(string userId, string idToken, PersonalDataModel profile)
         {
@@ -257,6 +340,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 throw new Exception($"Error inesperado: {ex.Message}");
             }
         }
+        
         public async Task<bool> UpdateConnectionStatusAsync(string userId, string idToken, ConnectionModel connectionStatus)
         {
 
@@ -289,6 +373,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 throw new Exception($"Error inesperado: {ex.Message}");
             }
         }
+        
         public async Task<object> GetPersonalAndLatestDayDataAsync(string userId, string idToken)
         {
             try
@@ -396,7 +481,6 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
         }
 
-
         public async Task<int?> GetConnectionStatusAsync(string userId, string idToken)
         {
             try
@@ -489,6 +573,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 throw new Exception($"Error al eliminar la conexión: {ex.Message}");
             }
         }
+        
         public async Task<List<ConnectedUserModel>> GetConnectedUsersAsync(string currentUserId, string idToken)
         {
             var firebaseClient = new FirebaseClient(
@@ -549,6 +634,18 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             return connectedUsers;
         }
 
+        public async Task ChangePasswordAsync(ChangePasswordRequestInputDTO input)
+        {
+            try
+            {
+                await _authClient.ResetEmailPasswordAsync(input.email);
+            }
+            catch (Firebase.Auth.FirebaseAuthException ex)
+            {
+                throw new Exception("Error al cambiar la contraseña: " + ex.Reason);
+            }
+        }
+
         public async Task<string> RegisterUserAsync(string email, string password, string name)
         {
             try
@@ -563,18 +660,26 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
         }
 
-        public async Task<string> LoginUserAsync(string email, string password)
+        public async Task<LoginResult> LoginUserAsync(string email, string password)
         {
             try
             {
                 var userCredential = await _authClient.SignInWithEmailAndPasswordAsync(email, password);
-                return await userCredential.User.GetIdTokenAsync(); // Devuelve solo el token seguro
+                var token = await userCredential.User.GetIdTokenAsync();
+                var userId = userCredential.User.Uid; // Obtienes el UID del usuario
+                return new LoginResult
+                {
+                    Token = token,
+                    UserId = userId
+                };
             }
             catch (Firebase.Auth.FirebaseAuthException ex)
             {
                 throw new Exception("Credenciales incorrectas");
             }
         }
+        
+
 
         public async Task<List<MonitorUserModel>> GetMonitoringUsersAsync(string currentUserId, string idToken)
         {
@@ -621,7 +726,6 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
             return monitoringUsers;
         }
-
 
         public async Task<string> GetUserEmailByIdAsync(string userId)
         {

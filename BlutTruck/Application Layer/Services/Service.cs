@@ -10,6 +10,7 @@
     using static BlutTruck.Application_Layer.Models.PersonalDataModel;
     using Firebase.Auth;
     using Google.Type;
+    using static BlutTruck.Data_Access_Layer.Repositories.HealthDataRepository;
 
     public class HealthDataService : IHealthDataService
     {
@@ -98,7 +99,7 @@
             return await _healthDataRepository.RegisterUserAsync(email, password, name);
         }
 
-        public async Task<string> LoginUserAsync(string email, string password)
+        public async Task<LoginResult> LoginUserAsync(string email, string password)
         {
             return await _healthDataRepository.LoginUserAsync(email, password);
         }
@@ -107,6 +108,15 @@
             return await _healthDataRepository.GetMonitoringUsersAsync(currentUserId, idToken);
         }
 
+        public async Task ChangePasswordAsync(ChangePasswordRequestInputDTO input)
+        {
+             await _healthDataRepository.ChangePasswordAsync(input);
+
+        }
+        public async Task<byte[]> GeneratePdfAsync(string userId, string idToken)
+        {
+            return await _healthDataRepository.GeneratePdfAsync(userId, idToken);
+        }
     }
 }
 
