@@ -42,11 +42,18 @@ namespace BlutTruck.API_Layer.Controllers
                 {
                     return Unauthorized(new { Message = "El token generado no es válido." });
                 }
-
-                var personalAndLatestDayData = await _healthDataService.GetPersonalAndLatestDayDataAsync(userId, token);
-                if (personalAndLatestDayData is string errorMessage)
+                var request = new GetPersonalAndLatestDayDataInputDTO
                 {
-                    return BadRequest(errorMessage);
+                    Credentials = new UserCredentials
+                    {
+                        UserId = userId,
+                        IdToken = token
+                    }
+                };
+                var personalAndLatestDayData = await _healthDataService.GetPersonalAndLatestDayDataAsync(request);
+                if (personalAndLatestDayData == null)
+                {
+                    return BadRequest(personalAndLatestDayData.ErrorMessage);
                 }
 
                 dynamic data = personalAndLatestDayData;
@@ -100,13 +107,21 @@ namespace BlutTruck.API_Layer.Controllers
                     riskAlerts.Add(("Colesterol", cholesterol, $"Nivel de colesterol elevado: {cholesterol} mg/dL."));
                 }
 
+                var request2 = new GetMonitoringUsersInputDTO
+                {
+                    Credentials = new UserCredentials
+                    {
+                        UserId = userId,
+                        IdToken = token
+                    }
+                };
                 // Obtener la lista de usuarios que deben ser notificados
-                var monitoringUsers = await _healthDataService.GetMonitoringUsersAsync(userId, token);
+                var monitoringUsers = await _healthDataService.GetMonitoringUsersAsync(request2);
 
                 // Se envía la alerta global si el riesgo predicho es alto...
                 if (IsHighRisk(predictionResult))
                 {
-                    foreach (var monitor in monitoringUsers)
+                    foreach (var monitor in monitoringUsers.MonitoringUsers)
                     {
                         await SendHighRiskNotificationAsync(monitor.Email, predictionResult);
                     }
@@ -117,7 +132,7 @@ namespace BlutTruck.API_Layer.Controllers
                 {
                     // Se genera un mensaje consolidado con todos los riesgos detectados
                     string riskDetails = string.Join("<br/>", riskAlerts.Select(r => r.message));
-                    foreach (var monitor in monitoringUsers)
+                    foreach (var monitor in monitoringUsers.MonitoringUsers)
                     {
                         await SendConsolidatedRiskNotificationAsync(monitor.Email, riskDetails);
                     }

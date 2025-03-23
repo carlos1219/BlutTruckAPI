@@ -67,18 +67,24 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             return decodedToken.Uid;
         }
 
-        public async Task WriteDataAsync(string userId, HealthDataInputModel data, string idToken)
+        public async Task WriteDataAsync(WriteDataInputDTO request)
         {
             var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
             var firebaseClient = new FirebaseClient(
                 _databaseUrl,
-                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
 
-            await firebaseClient.Child("healthData").Child(data.UserId).Child("dias").Child(currentDate).PutAsync(data);
+            await firebaseClient
+                .Child("healthData")
+                .Child(request.Credentials.UserId)
+                .Child("dias")
+                .Child(currentDate)
+                .PutAsync(request.HealthData);
         }
 
-        public async Task<object> ReadDataAsync(string userId, string idToken)
+        public async Task<ReadDataOutputDTO> ReadDataAsync(ReadDataInputDTO request)
         {
+            var response = new ReadDataOutputDTO();
             string dateKey = DateTime.UtcNow.ToString("yyyy-MM-dd");
 
             try
@@ -86,12 +92,12 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 // Inicializar cliente de Firebase con autenticación
                 var firebaseClient = new FirebaseClient(
                     _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
 
                 // Intentar obtener los datos del día actual
                 var todayData = await firebaseClient
                     .Child("healthData")
-                    .Child(userId)
+                    .Child(request.Credentials.UserId)
                     .Child("dias")
                     .Child(dateKey)
                     .OnceSingleAsync<HealthDataOutputModel>();
@@ -99,23 +105,24 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 if (todayData != null)
                 {
                     // Si hay datos para la fecha actual, devolverlos
-                    return new
-                    {
-                        SelectedDate = dateKey,
-                        Data = todayData
-                    };
+                    response.Success = true;
+                    response.SelectedDate = dateKey;
+                    response.Data = todayData;
+                    return response;
                 }
 
                 // Obtener todos los días disponibles si no hay datos del día actual
                 var allDaysData = await firebaseClient
                     .Child("healthData")
-                    .Child(userId)
+                    .Child(request.Credentials.UserId)
                     .Child("dias")
                     .OnceAsync<HealthDataOutputModel>();
 
                 if (allDaysData == null || allDaysData.Count == 0)
                 {
-                    return "Error: No hay datos disponibles en la base de datos.";
+                    response.Success = false;
+                    response.ErrorMessage = "Error: No hay datos disponibles en la base de datos.";
+                    return response;
                 }
 
                 // Buscar la fecha más reciente
@@ -125,45 +132,50 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
                 if (latestDay == null)
                 {
-                    return "Error: No se encontró una fecha válida en los datos.";
+                    response.Success = false;
+                    response.ErrorMessage = "Error: No se encontró una fecha válida en los datos.";
+                    return response;
                 }
 
-                return new
-                {
-                    SelectedDate = latestDay.Key,
-                    Data = latestDay.Object // Los datos correspondientes a la fecha más reciente
-                };
+                response.Success = true;
+                response.SelectedDate = latestDay.Key;
+                response.Data = latestDay.Object;
+                return response;
             }
             catch (Firebase.Database.FirebaseException ex)
             {
-                return $"Error en Firebase: {ex.Message}";
+                response.Success = false;
+                response.ErrorMessage = $"Error en Firebase: {ex.Message}";
+                return response;
             }
             catch (Exception ex)
             {
-                return $"Error inesperado: {ex.Message}";
+                response.Success = false;
+                response.ErrorMessage = $"Error inesperado: {ex.Message}";
+                return response;
             }
         }
 
-        public async Task<HealthDataOutputModel> GetSelectDateHealthDataAsync(string userId, string dateKey, string idToken)
+        public async Task<HealthDataOutputModel> GetSelectDateHealthDataAsync(SelectDateHealthDataInputDTO request)
         {
             try
             {
                 // Configurar el cliente de Firebase
                 var firebaseClient = new FirebaseClient(
                     _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
 
                 // Construir la ruta y obtener los datos
                 var healthData = await firebaseClient
                     .Child("healthData")
-                    .Child(userId)
+                    .Child(request.Credentials.UserId)
                     .Child("dias")
-                    .Child(dateKey)
+                    .Child(request.DateKey)
                     .OnceSingleAsync<HealthDataOutputModel>();
 
                 if (healthData == null)
                 {
-                    throw new Exception($"Los datos para la fecha {dateKey} no existen o están mal formateados.");
+                    throw new Exception($"Los datos para la fecha {request.DateKey} no existen o están mal formateados.");
                 }
 
                 return healthData;
@@ -178,19 +190,19 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
         }
 
-        public async Task<FullDataOutputDTO> GetFullHealthDataAsync(string userId, string idToken)
+        public async Task<FullDataOutputDTO> GetFullHealthDataAsync(UserCredentials credentials)
         {
             try
             {
                 // Inicializar cliente de Firebase con autenticación
                 var firebaseClient = new FirebaseClient(
                     _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
 
                 // Obtener datos personales
                 var personalData = await firebaseClient
                     .Child("healthData")
-                    .Child(userId)
+                    .Child(credentials.UserId)
                     .Child("datos_personales")
                     .OnceSingleAsync<PersonalDataModel>();
 
@@ -202,7 +214,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 // Obtener datos de días
                 var daysData = await firebaseClient
                     .Child("healthData")
-                    .Child(userId)
+                    .Child(credentials.UserId)
                     .Child("dias")
                     .OnceAsync<HealthDataOutputModel>();
 
@@ -232,10 +244,10 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
         }
 
-        public async Task<byte[]> GeneratePdfAsync(string userId, string idToken)
+        public async Task<PdfOutputDTO> GeneratePdfAsync(PdfInputDTO request)
         {
             // Se obtiene el objeto con los datos completos.
-            FullDataOutputDTO fullData = await this.GetFullHealthDataAsync(userId, idToken);
+            FullDataOutputDTO fullData = await this.GetFullHealthDataAsync(request.Credentials);
 
             // Si no se obtuvieron datos, se puede manejar el error según tu lógica (por ejemplo, lanzar una excepción)
             if (fullData == null)
@@ -267,8 +279,6 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 // ------------------------
                 document.Add(new Paragraph("Datos de Días", headerFont));
 
-                // Se asume que "Dias" es un diccionario donde la clave es la fecha (string)
-                // y el valor es un HealthDataOutputModel
                 foreach (var dia in fullData.Dias)
                 {
                     string fecha = dia.Key;
@@ -284,7 +294,6 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                         document.Add(new Paragraph("Datos de Ritmo Cardíaco:"));
                         foreach (var hr in diaData.HeartRateData)
                         {
-                            // Se asume que HeartRateDataPoint tiene propiedades Time y Bpm
                             document.Add(new Paragraph($"Hora: {hr.Time} - BPM: {hr.BPM}"));
                         }
                     }
@@ -295,7 +304,6 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                         document.Add(new Paragraph("Datos de Temperatura:"));
                         foreach (var temp in diaData.TemperatureData)
                         {
-                            // Se asume que TemperatureDataPoint tiene propiedades Time y Temperature
                             document.Add(new Paragraph($"Hora: {temp.Time} - Temperatura: {temp.Temperature}"));
                         }
                     }
@@ -306,105 +314,111 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 document.Close();
                 writer.Close();
 
-                return ms.ToArray();
+                return new PdfOutputDTO { PdfBytes = ms.ToArray() };
             }
         }
 
-
-        public async Task<bool> SaveUserProfileAsync(string userId, string idToken, PersonalDataModel profile)
+        public async Task<SaveUserProfileOutputDTO> SaveUserProfileAsync(SaveUserProfileInputDTO request)
         {
+            var response = new SaveUserProfileOutputDTO();
             try
             {
-                // Inicializar cliente de Firebase con autenticación
                 var firebaseClient = new FirebaseClient(
                     _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
 
-                // Crear referencia al nodo de datos personales
                 var profileRef = firebaseClient
                     .Child("healthData")
-                    .Child(userId)
+                    .Child(request.Credentials.UserId)
                     .Child("datos_personales");
 
-                // Actualizar los datos en Firebase
-                await profileRef.PutAsync(profile);
-
-                return true;
+                await profileRef.PutAsync(request.Profile);
+                response.Success = true;
+                return response;
             }
             catch (Firebase.Database.FirebaseException ex)
             {
-                throw new Exception($"Error en Firebase: {ex.Message}");
+                response.Success = false;
+                response.ErrorMessage = $"Error en Firebase: {ex.Message}";
+                return response;
             }
             catch (Exception ex)
             {
-                throw new Exception($"Error inesperado: {ex.Message}");
+                response.Success = false;
+                response.ErrorMessage = $"Error inesperado: {ex.Message}";
+                return response;
             }
         }
-        
-        public async Task<bool> UpdateConnectionStatusAsync(string userId, string idToken, ConnectionModel connectionStatus)
-        {
 
+        public async Task<UpdateConnectionStatusOutputDTO> UpdateConnectionStatusAsync(UpdateConnectionStatusInputDTO request)
+        {
+            var response = new UpdateConnectionStatusOutputDTO();
             try
             {
-                // Inicializar cliente de Firebase con autenticación
                 var firebaseClient = new FirebaseClient(
                     _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
 
-                // Crear referencia solo al nodo "Conexion.ConnectionStatus"
                 var connectionRef = firebaseClient
                     .Child("healthData")
-                    .Child(userId)
+                    .Child(request.Credentials.UserId)
                     .Child("datos_personales")
                     .Child("Conexion")
                     .Child("ConnectionStatus");
 
-                // Actualizar el estado de conexión
-                await connectionRef.PutAsync(connectionStatus.ConnectionStatus);
-
-                return true;
+                await connectionRef.PutAsync(request.ConnectionStatus.ConnectionStatus);
+                response.Success = true;
+                return response;
             }
             catch (Firebase.Database.FirebaseException ex)
             {
-                throw new Exception($"Error en Firebase: {ex.Message}");
+                response.Success = false;
+                response.ErrorMessage = $"Error en Firebase: {ex.Message}";
+                return response;
             }
             catch (Exception ex)
             {
-                throw new Exception($"Error inesperado: {ex.Message}");
+                response.Success = false;
+                response.ErrorMessage = $"Error inesperado: {ex.Message}";
+                return response;
             }
         }
-        
-        public async Task<object> GetPersonalAndLatestDayDataAsync(string userId, string idToken)
+
+        public async Task<PersonalAndLatestDayDataOutputDTO> GetPersonalAndLatestDayDataAsync(GetPersonalAndLatestDayDataInputDTO request)
         {
+            var response = new PersonalAndLatestDayDataOutputDTO();
             try
             {
-                // Inicializar cliente de Firebase con autenticación
                 var firebaseClient = new FirebaseClient(
                     _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
 
                 // Obtener datos personales
                 var personalData = await firebaseClient
                     .Child("healthData")
-                    .Child(userId)
+                    .Child(request.Credentials.UserId)
                     .Child("datos_personales")
                     .OnceSingleAsync<PersonalDataModel>();
 
                 if (personalData == null)
                 {
-                    return "Error: Los datos personales son nulos o no existen.";
+                    response.Success = false;
+                    response.ErrorMessage = "Error: Los datos personales son nulos o no existen.";
+                    return response;
                 }
 
                 // Obtener datos de días
                 var daysData = await firebaseClient
                     .Child("healthData")
-                    .Child(userId)
+                    .Child(request.Credentials.UserId)
                     .Child("dias")
                     .OnceAsync<HealthDataOutputModel>();
 
                 if (daysData == null || daysData.Count == 0)
                 {
-                    return "Error: No se encontraron datos de días.";
+                    response.Success = false;
+                    response.ErrorMessage = "Error: No se encontraron datos de días.";
+                    return response;
                 }
 
                 // Buscar el día más reciente
@@ -414,224 +428,297 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
                 if (string.IsNullOrEmpty(latestDayKey))
                 {
-                    return "Error: No se encontró un día válido más reciente.";
+                    response.Success = false;
+                    response.ErrorMessage = "Error: No se encontró un día válido más reciente.";
+                    return response;
                 }
 
-                // Obtener los datos del día más reciente
                 var latestDayData = daysData.FirstOrDefault(entry => entry.Key == latestDayKey)?.Object;
-
                 if (latestDayData == null)
                 {
-                    return "Error: No se encontraron datos para el día más reciente.";
+                    response.Success = false;
+                    response.ErrorMessage = "Error: No se encontraron datos para el día más reciente.";
+                    return response;
                 }
 
-                // Construir el objeto final
-                var result = new
+                response.PersonalData = personalData;
+                response.DiaMasReciente = new LatestDayData
                 {
-                    DatosPersonales = personalData,
-                    DiaMasReciente = new
-                    {
-                        Fecha = latestDayKey,
-                        Datos = latestDayData
-                    }
+                    Fecha = latestDayKey,
+                    Datos = latestDayData
                 };
-
-                return result;
+                response.Success = true;
+                return response;
             }
             catch (Firebase.Database.FirebaseException ex)
             {
-                return $"Error en Firebase: {ex.Message}";
+                response.Success = false;
+                response.ErrorMessage = $"Error en Firebase: {ex.Message}";
+                return response;
             }
             catch (Exception ex)
             {
-                return $"Error inesperado: {ex.Message}";
+                response.Success = false;
+                response.ErrorMessage = $"Error inesperado: {ex.Message}";
+                return response;
             }
         }
 
-        public async Task<PersonalDataModel> GetPersonalDataAsync(string userId, string idToken)
+        public async Task<GetPersonalDataOutputDTO> GetPersonalDataAsync(GetPersonalDataInputDTO request)
         {
+            var response = new GetPersonalDataOutputDTO();
             try
             {
-                // Inicializar cliente de Firebase con autenticación
                 var firebaseClient = new FirebaseClient(
                     _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
 
-                // Obtener datos personales
                 var personalData = await firebaseClient
                     .Child("healthData")
-                    .Child(userId)
+                    .Child(request.Credentials.UserId)
                     .Child("datos_personales")
                     .OnceSingleAsync<PersonalDataModel>();
 
                 if (personalData == null)
                 {
-                    throw new Exception("No se encontraron datos personales para este usuario.");
+                    response.Success = false;
+                    response.ErrorMessage = "No se encontraron datos personales para este usuario.";
+                    return response;
                 }
-
-                return personalData;
+                response.PersonalData = personalData;
+                response.Success = true;
+                return response;
             }
             catch (Firebase.Database.FirebaseException ex)
             {
-                throw new Exception($"Error en Firebase: {ex.Message}");
+                response.Success = false;
+                response.ErrorMessage = $"Error en Firebase: {ex.Message}";
+                return response;
             }
             catch (Exception ex)
             {
-                throw new Exception($"Error inesperado: {ex.Message}");
+                response.Success = false;
+                response.ErrorMessage = $"Error inesperado: {ex.Message}";
+                return response;
             }
         }
 
-        public async Task<int?> GetConnectionStatusAsync(string userId, string idToken)
+        public async Task<GetConnectionStatusOutputDTO> GetConnectionStatusAsync(GetConnectionStatusInputDTO request)
         {
+            var response = new GetConnectionStatusOutputDTO();
             try
             {
-                // Inicializar cliente de Firebase con autenticación
                 var firebaseClient = new FirebaseClient(
                     _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
 
-                // Crear referencia al nodo "Conexion.ConnectionStatus"
                 var connectionRef = firebaseClient
                     .Child("healthData")
-                    .Child(userId)
+                    .Child(request.Credentials.UserId)
                     .Child("datos_personales")
                     .Child("Conexion")
                     .Child("ConnectionStatus");
 
-                // Obtener el estado de conexión desde Firebase
                 var connectionStatus = await connectionRef.OnceSingleAsync<int?>();
-
-                return connectionStatus;
+                response.ConnectionStatus = connectionStatus;
+                response.Success = true;
+                return response;
             }
             catch (Firebase.Database.FirebaseException ex)
             {
-                throw new Exception($"Error en Firebase: {ex.Message}");
+                response.Success = false;
+                response.ErrorMessage = $"Error en Firebase: {ex.Message}";
+                return response;
             }
             catch (Exception ex)
             {
-                throw new Exception($"Error inesperado: {ex.Message}");
+                response.Success = false;
+                response.ErrorMessage = $"Error inesperado: {ex.Message}";
+                return response;
             }
         }
 
-        public async Task<string> RegisterConnectionAsync(string currentUserId, string connectedUserId, string idToken)
+        public async Task<RegisterConnectionOutputDTO> RegisterConnectionAsync(RegisterConnectionInputDTO request)
         {
+            var response = new RegisterConnectionOutputDTO();
             try
             {
                 var firebaseClient = new FirebaseClient(
                     _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.IdToken) });
 
-                // Separar el ID del usuario y el flag de admin
-                var parts = connectedUserId.Split(";admin:");
-                var extractedUserId = parts[0];  // El ID real del usuario
-                var isAdmin = parts.Length > 1 && bool.TryParse(parts[1], out bool adminValue) ? adminValue : false;  // Extraer true/false
+                // Separar el ID real y el flag de admin
+                var parts = request.ConnectedUserId.Split(";admin:");
+                var extractedUserId = parts[0];
+                var isAdmin = parts.Length > 1 && bool.TryParse(parts[1], out bool adminValue) ? adminValue : false;
 
                 var connectionData = new Dictionary<string, string>
         {
             { "connectedAt", DateTime.UtcNow.ToString("o") },
             { "connectedUserId", extractedUserId },
-            { "isAdmin", isAdmin.ToString() } // Guardamos el flag como string
+            { "isAdmin", isAdmin.ToString() }
         };
 
                 var monitorData = new Dictionary<string, string>
         {
             { "monitoredAt", DateTime.UtcNow.ToString("o") },
-            { "monitoringUserId", currentUserId }
+            { "monitoringUserId", request.CurrentUserId }
         };
 
                 // Guardar la conexión en el usuario actual
-                var pathConnection = $"healthData/{currentUserId}/conexiones/{extractedUserId}";
+                var pathConnection = $"healthData/{request.CurrentUserId}/conexiones/{extractedUserId}";
                 await firebaseClient.Child(pathConnection).PutAsync(connectionData);
 
                 // Guardar la referencia en el usuario conectado
-                var pathMonitor = $"healthData/{extractedUserId}/monitores/{currentUserId}";
+                var pathMonitor = $"healthData/{extractedUserId}/monitores/{request.CurrentUserId}";
                 await firebaseClient.Child(pathMonitor).PutAsync(monitorData);
 
-                return "Conexión registrada exitosamente y referencia inversa guardada";
+                response.Success = true;
+                response.Message = "Conexión registrada exitosamente y referencia inversa guardada";
+                return response;
             }
             catch (Exception ex)
             {
-                throw new Exception($"Error al registrar la conexión: {ex.Message}");
+                response.Success = false;
+                response.ErrorMessage = $"Error al registrar la conexión: {ex.Message}";
+                return response;
             }
         }
 
-        public async Task<string> DeleteConnectionAsync(string currentUserId, string connectedUserId, string idToken)
+        public async Task<DeleteConnectionOutputDTO> DeleteConnectionAsync(DeleteConnectionInputDTO request)
         {
+            var response = new DeleteConnectionOutputDTO();
             try
             {
                 var firebaseClient = new FirebaseClient(
                     _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
 
-                var path = $"healthData/{currentUserId}/conexiones/{connectedUserId}";
+                var path = $"healthData/{request.Credentials.UserId}/conexiones/{request.ConnectedUserId}";
                 await firebaseClient.Child(path).DeleteAsync();
 
-                return "Conexión eliminada correctamente";
+                response.Success = true;
+                response.Message = "Conexión eliminada correctamente";
             }
             catch (Exception ex)
             {
-                throw new Exception($"Error al eliminar la conexión: {ex.Message}");
+                response.Success = false;
+                response.ErrorMessage = $"Error al eliminar la conexión: {ex.Message}";
             }
+            return response;
         }
-        
-        public async Task<List<ConnectedUserModel>> GetConnectedUsersAsync(string currentUserId, string idToken)
+
+        public async Task<RegisterUserOutputDTO> RegisterUserAsync(RegisterUserInputDTO request)
         {
-            var firebaseClient = new FirebaseClient(
-                _databaseUrl,
-                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
-
-            // Obtener lista de conexiones del usuario actual
-            var connections = await firebaseClient
-                .Child("healthData")
-                .Child(currentUserId)
-                .Child("conexiones")
-                .OnceAsync<object>();
-
-            if (connections == null || !connections.Any())
-                return new List<ConnectedUserModel>();
-
-            var connectedUsers = new List<ConnectedUserModel>();
-
-            foreach (var connection in connections)
+            var response = new RegisterUserOutputDTO();
+            try
             {
-                var connectedUserId = connection.Key;
+                var userCredential = await _authClient.CreateUserWithEmailAndPasswordAsync(request.Email, request.Password);
+                var user = userCredential.User;
+                response.Token = await user.GetIdTokenAsync(); // Devuelve solo el token seguro
+                response.Success = true;
+            }
+            catch (Firebase.Auth.FirebaseAuthException ex)
+            {
+                response.Success = false;
+                response.ErrorMessage = "Error al registrar el usuario: " + ex.Reason;
+            }
+            return response;
+        }
 
-                // Obtener datos personales
-                var personalData = await firebaseClient
+        public async Task<LoginUserOutputDTO> LoginUserAsync(LoginUserInputDTO request)
+        {
+            var response = new LoginUserOutputDTO();
+            try
+            {
+                var userCredential = await _authClient.SignInWithEmailAndPasswordAsync(request.Email, request.Password);
+                var token = await userCredential.User.GetIdTokenAsync();
+                var userId = userCredential.User.Uid; // Obtienes el UID del usuario
+                response.Token = token;
+                response.UserId = userId;
+                response.Success = true;
+            }
+            catch (Firebase.Auth.FirebaseAuthException ex)
+            {
+                response.Success = false;
+                response.ErrorMessage = "Credenciales incorrectas";
+            }
+            return response;
+        }
+
+        public async Task<GetMonitoringUsersOutputDTO> GetMonitoringUsersAsync(GetMonitoringUsersInputDTO request)
+        {
+            var response = new GetMonitoringUsersOutputDTO();
+            response.MonitoringUsers = new List<MonitorUserModel>();
+            try
+            {
+                var firebaseClient = new FirebaseClient(
+                    _databaseUrl,
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+
+                // Obtener lista de usuarios que monitorean al usuario actual
+                var monitors = await firebaseClient
                     .Child("healthData")
-                    .Child(connectedUserId)
-                    .Child("datos_personales")
-                    .OnceSingleAsync<PersonalDataModel>();
+                    .Child(request.Credentials.UserId)
+                    .Child("monitores")
+                    .OnceAsync<object>();
 
-                // **Usar ReadDataAsync para obtener la última fecha con datos**
-                var healthDataResult = await this.ReadDataAsync(connectedUserId, idToken);
-
-                // Extraer los datos de la respuesta
-                string latestDay = "No days available";
-                HealthDataOutputModel healthData = null;
-
-                if (healthDataResult is not string && healthDataResult is not null)
+                if (monitors == null || !monitors.Any())
                 {
-                    latestDay = ((dynamic)healthDataResult).SelectedDate;
-                    healthData = ((dynamic)healthDataResult).Data;
+                    response.Success = true;
+                    return response;
                 }
 
-                var connectedUser = new ConnectedUserModel
+                foreach (var monitor in monitors)
                 {
-                    ConnectedUserId = connectedUserId,
-                    Name = personalData?.Name ?? "No Name",
-                    PhotoURL = personalData?.PhotoURL ?? "No photo",
-                    LatestDay = latestDay,
-                    MaxHeartRate = healthData?.MaxHeartRate?.ToString() ?? "N/A",
-                    MinHeartRate = healthData?.MinHeartRate?.ToString() ?? "N/A",
-                    AvgHeartRate = healthData?.AvgHeartRate?.ToString() ?? "N/A"
-                };
+                    var monitoringUserId = monitor.Key;
 
+                    // Obtener el correo electrónico del usuario monitor mediante el método refactorizado
+                    var emailResponse = await GetUserEmailByIdAsync(new GetUserEmailByIdInputDTO { UserId = monitoringUserId });
+                    string email = emailResponse.Email;
 
-                connectedUsers.Add(connectedUser);
+                    // Obtener datos personales del usuario monitor
+                    var personalData = await firebaseClient
+                        .Child("healthData")
+                        .Child(monitoringUserId)
+                        .Child("datos_personales")
+                        .OnceSingleAsync<PersonalDataModel>();
+
+                    var monitoringUser = new MonitorUserModel
+                    {
+                        MonitoringUserId = monitoringUserId,
+                        Name = personalData?.Name ?? "No Name",
+                        PhotoURL = personalData?.PhotoURL ?? "No photo",
+                        Email = email
+                    };
+
+                    response.MonitoringUsers.Add(monitoringUser);
+                }
+                response.Success = true;
             }
+            catch (Exception ex)
+            {
+                response.Success = false;
+                response.ErrorMessage = $"Error al obtener usuarios que monitorean: {ex.Message}";
+            }
+            return response;
+        }
 
-            return connectedUsers;
+        public async Task<GetUserEmailByIdOutputDTO> GetUserEmailByIdAsync(GetUserEmailByIdInputDTO request)
+        {
+            var response = new GetUserEmailByIdOutputDTO();
+            try
+            {
+                UserRecord user = await FirebaseAuth.DefaultInstance.GetUserAsync(request.UserId);
+                response.Email = user.Email;
+                response.Success = true;
+            }
+            catch (Exception ex)
+            {
+                response.Success = false;
+                response.ErrorMessage = $"Error al obtener email del usuario: {ex.Message}";
+            }
+            return response;
         }
 
         public async Task ChangePasswordAsync(ChangePasswordRequestInputDTO input)
@@ -646,93 +733,72 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
         }
 
-        public async Task<string> RegisterUserAsync(string email, string password, string name)
-        {
-            try
-            {
-                var userCredential = await _authClient.CreateUserWithEmailAndPasswordAsync(email, password);
-                var user = userCredential.User;
-                return await user.GetIdTokenAsync(); // Devuelve solo el token seguro
-            }
-            catch (Firebase.Auth.FirebaseAuthException ex)
-            {
-                throw new Exception("Error al registrar el usuario: " + ex.Reason);
-            }
-        }
-
-        public async Task<LoginResult> LoginUserAsync(string email, string password)
-        {
-            try
-            {
-                var userCredential = await _authClient.SignInWithEmailAndPasswordAsync(email, password);
-                var token = await userCredential.User.GetIdTokenAsync();
-                var userId = userCredential.User.Uid; // Obtienes el UID del usuario
-                return new LoginResult
-                {
-                    Token = token,
-                    UserId = userId
-                };
-            }
-            catch (Firebase.Auth.FirebaseAuthException ex)
-            {
-                throw new Exception("Credenciales incorrectas");
-            }
-        }
-        
-
-
-        public async Task<List<MonitorUserModel>> GetMonitoringUsersAsync(string currentUserId, string idToken)
+        public async Task<List<ConnectedUserModel>> GetConnectedUsersAsync(ConnectedUsersInputDTO request)
         {
             var firebaseClient = new FirebaseClient(
                 _databaseUrl,
-                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(idToken) });
+                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
 
-            // Obtener lista de usuarios que monitorean al usuario actual
-            var monitors = await firebaseClient
+            // Obtener lista de conexiones del usuario actual
+            var connections = await firebaseClient
                 .Child("healthData")
-                .Child(currentUserId)
-                .Child("monitores")
+                .Child(request.Credentials.UserId)
+                .Child("conexiones")
                 .OnceAsync<object>();
 
-            if (monitors == null || !monitors.Any())
-                return new List<MonitorUserModel>();
+            if (connections == null || !connections.Any())
+                return new List<ConnectedUserModel>();
 
-            var monitoringUsers = new List<MonitorUserModel>();
+            var connectedUsers = new List<ConnectedUserModel>();
 
-            foreach (var monitor in monitors)
+            foreach (var connection in connections)
             {
-                var monitoringUserId = monitor.Key;
+                var connectedUserId = connection.Key;
 
-                // Obtener el correo electrónico del usuario monitor
-                string email = await GetUserEmailByIdAsync(monitoringUserId);
-
-                // Obtener datos personales del usuario monitor
+                // Obtener datos personales del usuario conectado
                 var personalData = await firebaseClient
                     .Child("healthData")
-                    .Child(monitoringUserId)
+                    .Child(connectedUserId)
                     .Child("datos_personales")
                     .OnceSingleAsync<PersonalDataModel>();
 
-                var monitoringUser = new MonitorUserModel
+                // Usar ReadDataAsync (versión con DTO) para obtener la última fecha con datos
+                var healthDataResult = await this.ReadDataAsync(
+                    new ReadDataInputDTO
+                    {
+                        Credentials = new UserCredentials
+                        {
+                            UserId = connectedUserId,
+                            IdToken = request.Credentials.IdToken
+                        }
+                    });
+
+                // Extraer los datos de la respuesta
+                string latestDay = "No days available";
+                HealthDataOutputModel healthData = null;
+
+                if (healthDataResult != null && healthDataResult.Success)
                 {
-                    MonitoringUserId = monitoringUserId,
+                    latestDay = healthDataResult.SelectedDate;
+                    healthData = healthDataResult.Data;
+                }
+
+                var connectedUser = new ConnectedUserModel
+                {
+                    ConnectedUserId = connectedUserId,
                     Name = personalData?.Name ?? "No Name",
                     PhotoURL = personalData?.PhotoURL ?? "No photo",
-                    Email = email
+                    LatestDay = latestDay,
+                    MaxHeartRate = healthData?.MaxHeartRate?.ToString() ?? "N/A",
+                    MinHeartRate = healthData?.MinHeartRate?.ToString() ?? "N/A",
+                    AvgHeartRate = healthData?.AvgHeartRate?.ToString() ?? "N/A"
                 };
 
-                monitoringUsers.Add(monitoringUser);
+                connectedUsers.Add(connectedUser);
             }
 
-            return monitoringUsers;
+            return connectedUsers;
         }
-
-        public async Task<string> GetUserEmailByIdAsync(string userId)
-        {
-            UserRecord user = await FirebaseAuth.DefaultInstance.GetUserAsync(userId);
-            return user.Email;
-        }
-
     }
 }
 

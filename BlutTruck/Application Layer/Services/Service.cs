@@ -31,91 +31,93 @@
             return await _healthDataRepository.VerifyIdTokenAsync(idToken);
         }
 
-        public async Task SaveHealthDataAsync(string userId, HealthDataInputModel data, string idToken)
+        public Task WriteDataAsync(WriteDataInputDTO request)
         {
-            await _healthDataRepository.WriteDataAsync(userId, data, idToken);
+            return _healthDataRepository.WriteDataAsync(request);
         }
 
-        public async Task<string> RegisterConnectionAsync(string currentUserId, string connectedUserId, string idToken)
+        public Task<ReadDataOutputDTO> ReadDataAsync(ReadDataInputDTO request)
         {
-            return await _healthDataRepository.RegisterConnectionAsync(currentUserId, connectedUserId, idToken);
+            return _healthDataRepository.ReadDataAsync(request);
         }
 
-        public async Task<string> DeleteConnectionAsync(string currentUserId, string connectedUserId, string idToken)
+        public Task<HealthDataOutputModel> GetSelectDateHealthDataAsync(SelectDateHealthDataInputDTO request)
         {
-            return await _healthDataRepository.DeleteConnectionAsync(currentUserId, connectedUserId, idToken);
-        }
-
-        public async Task<List<ConnectedUserModel>> GetConnectedUsersAsync(string currentUserId, string idToken)
-        {
-            return await _healthDataRepository.GetConnectedUsersAsync(currentUserId, idToken);
-        }
-
-        public async Task<object> GetHealthDataAsync(string userId, string idToken)
-        {
-            return await _healthDataRepository.ReadDataAsync(userId, idToken);
-        }
-
-        public async Task<HealthDataOutputModel> GetSelectDateHealthDataAsync(string userId, string dateKey, string idToken)
-        {
-            if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(dateKey))
+            if (string.IsNullOrEmpty(request.Credentials.UserId) || string.IsNullOrEmpty(request.DateKey))
             {
                 throw new ArgumentException("El UserId y la fecha no pueden estar vacíos.");
             }
-
-            return await _healthDataRepository.GetSelectDateHealthDataAsync(userId, dateKey, idToken);
-        }
-        public async Task<object> GetFullHealthDataAsync(string userId, string idToken)
-        {
-            return await _healthDataRepository.GetFullHealthDataAsync(userId, idToken);
-        }
-        public async Task<bool> SaveUserProfileAsync(string userId, string idToken, PersonalDataModel profile)
-        {
-            return await _healthDataRepository.SaveUserProfileAsync(userId, idToken, profile);
+            return _healthDataRepository.GetSelectDateHealthDataAsync(request);
         }
 
-        public async Task<bool> UpdateConnectionStatusAsync(string userId, string idToken, ConnectionModel connect)
+        public Task<FullDataOutputDTO> GetFullHealthDataAsync(UserCredentials credentials)
         {
-            return await _healthDataRepository.UpdateConnectionStatusAsync(userId, idToken, connect);
+            return _healthDataRepository.GetFullHealthDataAsync(credentials);
         }
 
-        public async Task<object> GetPersonalAndLatestDayDataAsync(string userId, string idToken)
+        public Task<SaveUserProfileOutputDTO> SaveUserProfileAsync(SaveUserProfileInputDTO request)
         {
-            return await _healthDataRepository.GetPersonalAndLatestDayDataAsync(userId, idToken);
+            return _healthDataRepository.SaveUserProfileAsync(request);
         }
 
-        public async Task<PersonalDataModel> GetPersonalDataAsync(string userId, string idToken)
+        public Task<PersonalAndLatestDayDataOutputDTO> GetPersonalAndLatestDayDataAsync(GetPersonalAndLatestDayDataInputDTO request)
         {
-            return await _healthDataRepository.GetPersonalDataAsync(userId, idToken);
+            return _healthDataRepository.GetPersonalAndLatestDayDataAsync(request);
         }
 
-        public async Task<int?> GetConnectionStatusAsync(string userId, string idToken)
+        public Task<GetPersonalDataOutputDTO> GetPersonalDataAsync(GetPersonalDataInputDTO request)
         {
-            return await _healthDataRepository.GetConnectionStatusAsync(userId, idToken);
+            return _healthDataRepository.GetPersonalDataAsync(request);
         }
 
-        public async Task<string> RegisterUserAsync(string email, string password, string name)
+        public Task<UpdateConnectionStatusOutputDTO> UpdateConnectionStatusAsync(UpdateConnectionStatusInputDTO request)
         {
-            return await _healthDataRepository.RegisterUserAsync(email, password, name);
+            return _healthDataRepository.UpdateConnectionStatusAsync(request);
         }
 
-        public async Task<LoginResult> LoginUserAsync(string email, string password)
+        public Task<GetConnectionStatusOutputDTO> GetConnectionStatusAsync(GetConnectionStatusInputDTO request)
         {
-            return await _healthDataRepository.LoginUserAsync(email, password);
-        }
-        public async Task<List<MonitorUserModel>> GetMonitoringUsersAsync(string currentUserId, string idToken)
-        {
-            return await _healthDataRepository.GetMonitoringUsersAsync(currentUserId, idToken);
+            return _healthDataRepository.GetConnectionStatusAsync(request);
         }
 
-        public async Task ChangePasswordAsync(ChangePasswordRequestInputDTO input)
+        public Task<RegisterConnectionOutputDTO> RegisterConnectionAsync(RegisterConnectionInputDTO request)
         {
-             await _healthDataRepository.ChangePasswordAsync(input);
-
+            return _healthDataRepository.RegisterConnectionAsync(request);
         }
-        public async Task<byte[]> GeneratePdfAsync(string userId, string idToken)
+
+        public Task<DeleteConnectionOutputDTO> DeleteConnectionAsync(DeleteConnectionInputDTO request)
         {
-            return await _healthDataRepository.GeneratePdfAsync(userId, idToken);
+            return _healthDataRepository.DeleteConnectionAsync(request);
+        }
+
+        public Task<List<ConnectedUserModel>> GetConnectedUsersAsync(ConnectedUsersInputDTO request)
+        {
+            return _healthDataRepository.GetConnectedUsersAsync(request);
+        }
+
+        public Task<RegisterUserOutputDTO> RegisterUserAsync(RegisterUserInputDTO request)
+        {
+            return _healthDataRepository.RegisterUserAsync(request);
+        }
+
+        public Task<LoginUserOutputDTO> LoginUserAsync(LoginUserInputDTO request)
+        {
+            return _healthDataRepository.LoginUserAsync(request);
+        }
+
+        public Task<GetMonitoringUsersOutputDTO> GetMonitoringUsersAsync(GetMonitoringUsersInputDTO request)
+        {
+            return _healthDataRepository.GetMonitoringUsersAsync(request);
+        }
+
+        public Task ChangePasswordAsync(ChangePasswordRequestInputDTO input)
+        {
+            return _healthDataRepository.ChangePasswordAsync(input);
+        }
+
+        public Task<PdfOutputDTO> GeneratePdfAsync(PdfInputDTO request)
+        {
+            return _healthDataRepository.GeneratePdfAsync(request);
         }
     }
 }

@@ -23,29 +23,27 @@ namespace Api.Controllers
         }
 
         [HttpPost("write")]
-        public async Task<IActionResult> WriteData([FromBody] HealthDataInputModel inputModel)
+        public async Task<IActionResult> WriteData([FromBody] WriteDataInputDTO request)
         {
-            if (inputModel == null || string.IsNullOrEmpty(inputModel.UserId))
+            if (request == null ||
+                request.Credentials == null ||
+                string.IsNullOrEmpty(request.Credentials.UserId))
             {
                 return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta el UserId." });
             }
 
             try
             {
-                var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-                if (string.IsNullOrEmpty(token))
+
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
                 {
-                    return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
                 }
-
-                var uid = await _healthDataService.VerifyUserTokenAsync(token);
-                if (uid == null)
-                {
-                    return Unauthorized(new { Message = "El token generado no es válido." });
-                }
-
-                await _healthDataService.SaveHealthDataAsync(uid, inputModel, token);
-
+                await _healthDataService.WriteDataAsync(request);
                 return Ok(new { Message = "Datos guardados correctamente." });
             }
             catch (Exception ex)
@@ -55,29 +53,28 @@ namespace Api.Controllers
         }
 
         [HttpPost("registerConnection")]
-        public async Task<IActionResult> RegisterConnection([FromBody] ConnectionRequestModel request)
+        public async Task<IActionResult> RegisterConnection([FromBody] RegisterConnectionInputDTO request)
         {
-            if (request == null)
+            if (request == null ||
+                request.ConnectedUserId == null ||
+                string.IsNullOrEmpty(request.CurrentUserId) ||
+                string.IsNullOrEmpty(request.ConnectedUserId))
             {
-                return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta el UserId." });
+                return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta información necesaria." });
             }
 
             try
             {
-                var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-                if (string.IsNullOrEmpty(token))
+                if (request.IdToken == "string" || request.IdToken == null)
                 {
-                    return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    request.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
                 }
-
-                var uid = await _healthDataService.VerifyUserTokenAsync(token);
-                if (uid == null)
-                {
-                    return Unauthorized(new { Message = "El token generado no es válido." });
-                }
-                await _healthDataService.RegisterConnectionAsync(request.CurrentUserId, request.ConnectedUserId, token);
-
-                return Ok(new { Message = "Conexión registrada exitosamente" });
+                RegisterConnectionOutputDTO response = await _healthDataService.RegisterConnectionAsync(request);
+                return Ok(new { Message = "Conexión registrada exitosamente", Result = response });
             }
             catch (Exception ex)
             {
@@ -85,31 +82,29 @@ namespace Api.Controllers
             }
         }
 
-        [HttpGet("getMonitoringUsers")]
-        public async Task<IActionResult> GetMonitoringUsers([FromQuery] string currentUserId)
+        // Se espera que el cliente envíe el currentUserId y el token como parte del DTO.
+        [HttpPost("getMonitoringUsers")]
+        public async Task<IActionResult> GetMonitoringUsers([FromBody] GetMonitoringUsersInputDTO request)
         {
-            if (string.IsNullOrEmpty(currentUserId))
+            if (request == null ||
+                request.Credentials == null ||
+                string.IsNullOrEmpty(request.Credentials.UserId))
             {
-                return BadRequest(new { Message = "El UserId es obligatorio." });
+                return BadRequest(new { Message = "El UserId y el IdToken son obligatorios." });
             }
 
             try
             {
-                var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-                if (string.IsNullOrEmpty(token))
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
                 {
-                    return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
                 }
-
-                var uid = await _healthDataService.VerifyUserTokenAsync(token);
-                if (uid == null)
-                {
-                    return Unauthorized(new { Message = "El token generado no es válido." });
-                }
-
-                var monitoringUsers = await _healthDataService.GetMonitoringUsersAsync(currentUserId, token);
-
-                return Ok(monitoringUsers);
+                GetMonitoringUsersOutputDTO monitoringUsers = await _healthDataService.GetMonitoringUsersAsync(request);
+                return Ok(monitoringUsers.MonitoringUsers);
             }
             catch (Exception ex)
             {
@@ -118,82 +113,83 @@ namespace Api.Controllers
         }
 
         [HttpDelete("deleteConnection")]
-        public async Task<IActionResult> DeleteConnection([FromBody] ConnectionRequestModel request)
+        public async Task<IActionResult> DeleteConnection([FromBody] DeleteConnectionInputDTO request)
         {
-            if (request == null)
+            if (request == null ||
+                request.Credentials == null ||
+                string.IsNullOrEmpty(request.Credentials.UserId) ||
+                string.IsNullOrEmpty(request.ConnectedUserId))
             {
-                return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta el UserId." });
+                return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta información necesaria." });
             }
 
             try
             {
-                var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-                if (string.IsNullOrEmpty(token))
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
                 {
-                    return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
                 }
-
-                var uid = await _healthDataService.VerifyUserTokenAsync(token);
-                if (uid == null)
-                {
-                    return Unauthorized(new { Message = "El token generado no es válido." });
-                }
-                var result = await _healthDataService.DeleteConnectionAsync(request.CurrentUserId, request.ConnectedUserId, token);
-                return Ok(new { Message = result });
+                DeleteConnectionOutputDTO response = await _healthDataService.DeleteConnectionAsync(request);
+                return Ok(new { Message = response.Message });
             }
             catch (Exception ex)
             {
                 return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
             }
         }
+
         [HttpPost("register")]
-        public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+        public async Task<IActionResult> Register([FromBody] RegisterUserInputDTO request)
         {
-            if (string.IsNullOrEmpty(request.Email) || string.IsNullOrEmpty(request.Password) || string.IsNullOrEmpty(request.Name))
+            if (request == null ||
+                string.IsNullOrEmpty(request.Email) ||
+                string.IsNullOrEmpty(request.Password) ||
+                string.IsNullOrEmpty(request.Name))
             {
                 return BadRequest(new { Message = "Todos los campos son obligatorios." });
             }
 
             try
             {
-                var token = await _healthDataService.RegisterUserAsync(request.Email, request.Password, request.Name);
-                return Ok(new { Token = token, Message = "Registro exitoso." });
+                RegisterUserOutputDTO response = await _healthDataService.RegisterUserAsync(request);
+                return Ok(new { Token = response.Token, Message = "Registro exitoso." });
             }
             catch (Exception ex)
             {
                 return StatusCode(500, new { Message = ex.Message });
             }
         }
+
         [AllowAnonymous]
         [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginRequest request)
+        public async Task<IActionResult> Login([FromBody] LoginUserInputDTO request)
         {
-            if (string.IsNullOrEmpty(request.Email) || string.IsNullOrEmpty(request.Password))
+            if (request == null ||
+                string.IsNullOrEmpty(request.Email) ||
+                string.IsNullOrEmpty(request.Password))
             {
                 return BadRequest(new { Message = "Correo y contraseña son obligatorios." });
             }
 
             try
             {
-                // Se asume que LoginUserAsync ahora retorna un objeto con Token y UserId
-                var loginResult = await _healthDataService.LoginUserAsync(request.Email, request.Password);
-                return Ok(new
-                {
-                    Token = loginResult.Token,
-                    UserId = loginResult.UserId,
-                    Message = "Inicio de sesión exitoso."
-                });
+                LoginUserOutputDTO response = await _healthDataService.LoginUserAsync(request);
+                return Ok(response);
             }
             catch (Exception ex)
             {
-                return Unauthorized(new { Message = ex.Message });
+                return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
             }
         }
 
         [HttpPost("change")]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequestInputDTO request)
         {
-            if ( string.IsNullOrEmpty(request.email))
+            if (string.IsNullOrEmpty(request.email))
             {
                 return BadRequest(new { Message = "El token y la nueva contraseña son obligatorios." });
             }
@@ -201,7 +197,7 @@ namespace Api.Controllers
             try
             {
                 await _healthDataService.ChangePasswordAsync(request);
-                return Ok(new {Message = "Contraseña actualizada exitosamente." });
+                return Ok(new { Message = "Contraseña actualizada exitosamente." });
             }
             catch (Exception ex)
             {
@@ -210,43 +206,26 @@ namespace Api.Controllers
         }
 
 
-        [HttpPost("save-profile/{userId}")]
-        public async Task<IActionResult> SaveUserProfileAsync(
-        string userId,
-        [FromBody] PersonalDataModel profile)
+        [HttpPost("save-profile")]
+        public async Task<IActionResult> SaveUserProfileAsync([FromBody] SaveUserProfileInputDTO request)
         {
-            if (string.IsNullOrEmpty(userId))
+            if (request == null || string.IsNullOrEmpty(request.Credentials.UserId) || request.Profile == null)
             {
-                return BadRequest(new { Message = "El UserId es requerido." });
-            }
-
-            var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-            if (string.IsNullOrEmpty(token))
-            {
-                return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
-            }
-
-            var uid = await _healthDataService.VerifyUserTokenAsync(token);
-            if (uid == null)
-            {
-                return Unauthorized(new { Message = "El token generado no es válido." });
-            }
-
-            if (profile == null)
-            {
-                return BadRequest(new { Message = "El perfil no puede ser nulo." });
+                return BadRequest(new { Message = "El UserId y el perfil son obligatorios." });
             }
 
             try
             {
-                var isSaved = await _healthDataService.SaveUserProfileAsync(userId, token, profile);
-
-                if (!isSaved)
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
                 {
-                    return StatusCode(500, new { Message = "No se pudo guardar el perfil." });
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
                 }
-
-                return Ok(new { Message = "Perfil guardado correctamente." });
+                SaveUserProfileOutputDTO response = await _healthDataService.SaveUserProfileAsync(request);
+                return Ok(new { Message = "Perfil guardado correctamente.", Data = response });
             }
             catch (Exception ex)
             {
@@ -254,50 +233,36 @@ namespace Api.Controllers
             }
         }
 
-        [HttpPost("update-connection/{userId}")]
-        public async Task<IActionResult> UpdateConnectionStatusAsync(
-        string userId,
-        [FromBody] ConnectionModel connection)
+        [HttpPost("update-connection")]
+        public async Task<IActionResult> UpdateConnectionStatusAsync([FromBody] UpdateConnectionStatusInputDTO request)
         {
-            if (string.IsNullOrEmpty(userId))
+            if (request == null ||
+                string.IsNullOrEmpty(request.Credentials.UserId) ||
+                request.ConnectionStatus == null ||
+                request.ConnectionStatus.ConnectionStatus == null)
             {
-                return BadRequest(new { Message = "El UserId es requerido." });
-            }
-
-            if (connection == null || connection.ConnectionStatus == null)
-            {
-                return BadRequest(new { Message = "El estado de conexión es requerido." });
-            }
-
-            var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-            if (string.IsNullOrEmpty(token))
-            {
-                return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
-            }
-
-            var uid = await _healthDataService.VerifyUserTokenAsync(token);
-            if (uid == null)
-            {
-                return Unauthorized(new { Message = "El token generado no es válido." });
+                return BadRequest(new { Message = "El UserId y el estado de conexión son obligatorios." });
             }
 
             try
             {
-                var isUpdated = await _healthDataService.UpdateConnectionStatusAsync(userId, token, connection);
-
-             
-
-                return Ok(new { Message = "Estado de conexión actualizado correctamente." });
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
+                {
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                UpdateConnectionStatusOutputDTO response = await _healthDataService.UpdateConnectionStatusAsync(request);
+                return Ok(new { Message = "Estado de conexión actualizado correctamente.", Data = response });
             }
             catch (Exception ex)
             {
                 return StatusCode(500, new { Message = $"Error al actualizar el estado de conexión: {ex.Message}" });
             }
         }
-
-
     }
-
 
 
     [ApiController]
@@ -311,34 +276,25 @@ namespace Api.Controllers
             _healthDataService = healthDataService;
         }
 
-        [HttpGet("recentday/{userId}")]
-        public async Task<IActionResult> ReadData(string userId)
+        [HttpPost("recentday")]
+        public async Task<IActionResult> ReadData([FromBody] ReadDataInputDTO request)
         {
-            if (string.IsNullOrEmpty(userId))
-            {
+            if (request == null || string.IsNullOrEmpty(request.Credentials.UserId))
                 return BadRequest(new { Message = "El UserId es requerido." });
-            }
 
             try
             {
-                var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-                if (string.IsNullOrEmpty(token))
+                if(request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
                 {
-                    return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
                 }
-
-                var uid = await _healthDataService.VerifyUserTokenAsync(token);
-                if (uid == null)
-                {
-                    return Unauthorized(new { Message = "El token generado no es válido." });
-                }
-
-                var data = await _healthDataService.GetHealthDataAsync(userId, token);
-
+                var data = await _healthDataService.ReadDataAsync(request);
                 if (data == null)
-                {
                     return NotFound(new { Message = "No se encontraron datos para el usuario especificado." });
-                }
 
                 return Ok(data);
             }
@@ -348,33 +304,25 @@ namespace Api.Controllers
             }
         }
 
-        [HttpGet("selectday/{userId}/{dateKey}")]
-        public async Task<IActionResult> GetSelectDateHealthDataAsync(string userId, string dateKey)
+        [HttpPost("selectday")]
+        public async Task<IActionResult> GetSelectDateHealthDataAsync([FromBody] SelectDateHealthDataInputDTO request)
         {
-            if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(dateKey))
-            {
+            if (request == null || string.IsNullOrEmpty(request.Credentials.UserId) || string.IsNullOrEmpty(request.DateKey))
                 return BadRequest(new { Message = "El UserId y la fecha son obligatorios." });
-            }
 
             try
             {
-                var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-                if (string.IsNullOrEmpty(token))
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
                 {
-                    return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
                 }
-
-                var uid = await _healthDataService.VerifyUserTokenAsync(token);
-                if (uid == null)
-                {
-                    return Unauthorized(new { Message = "El token generado no es válido." });
-                }
-
-                var healthData = await _healthDataService.GetSelectDateHealthDataAsync(userId, dateKey, token);
+                var healthData = await _healthDataService.GetSelectDateHealthDataAsync(request);
                 if (healthData == null)
-                {
-                    return NotFound(new { Message = $"No se encontraron datos para la fecha {dateKey}." });
-                }
+                    return NotFound(new { Message = $"No se encontraron datos para la fecha {request.DateKey}." });
 
                 return Ok(healthData);
             }
@@ -384,33 +332,25 @@ namespace Api.Controllers
             }
         }
 
-        [HttpGet("full/{userId}")]
-        public async Task<IActionResult> GetFullHealthDataAsync(string userId)
+        [HttpPost("full")]
+        public async Task<IActionResult> GetFullHealthDataAsync([FromBody] UserCredentials request)
         {
-            if (string.IsNullOrEmpty(userId))
-            {
+            if (request == null || string.IsNullOrEmpty(request.UserId))
                 return BadRequest(new { Message = "El UserId es requerido." });
-            }
-
-            var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-            if (string.IsNullOrEmpty(token))
-            {
-                return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
-            }
-
-            var uid = await _healthDataService.VerifyUserTokenAsync(token);
-            if (uid == null)
-            {
-                return Unauthorized(new { Message = "El token generado no es válido." });
-            }
 
             try
             {
-                var healthData = await _healthDataService.GetFullHealthDataAsync(userId, token);
-                if (healthData == null)
+                if (request.IdToken == "string" || request.IdToken == null)
                 {
-                    return NotFound(new { Message = "Datos no encontrados." });
+                    request.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
                 }
+                var healthData = await _healthDataService.GetFullHealthDataAsync(request);
+                if (healthData == null)
+                    return NotFound(new { Message = "Datos no encontrados." });
 
                 return Ok(healthData);
             }
@@ -420,30 +360,23 @@ namespace Api.Controllers
             }
         }
 
-        [HttpGet("connected-users/{userId}")]
-        public async Task<IActionResult> GetConnectedUsers(string userId)
+        [HttpPost("connected-users")]
+        public async Task<IActionResult> GetConnectedUsers([FromBody] ConnectedUsersInputDTO request)
         {
+            if (request == null || string.IsNullOrEmpty(request.Credentials.UserId))
+                return BadRequest(new { Message = "El Credentials.UserId es requerido." });
+
             try
             {
-                if (string.IsNullOrEmpty(userId))
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
                 {
-                    return BadRequest(new { Message = "El UserId es requerido." });
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
                 }
-
-                var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-                if (string.IsNullOrEmpty(token))
-                {
-                    return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
-                }
-
-                var uid = await _healthDataService.VerifyUserTokenAsync(token);
-                if (uid == null)
-                {
-                    return Unauthorized(new { Message = "El token generado no es válido." });
-                }
-
-                // Obtener la lista de usuarios conectados
-                var connectedUsers = await _healthDataService.GetConnectedUsersAsync(userId, token);
+                var connectedUsers = await _healthDataService.GetConnectedUsersAsync(request);
                 return Ok(connectedUsers);
             }
             catch (Exception ex)
@@ -452,33 +385,25 @@ namespace Api.Controllers
             }
         }
 
-        [HttpGet("latest/{userId}")]
-        public async Task<IActionResult> GetPersonalAndLatestDayDataAsync(string userId)
+        [HttpPost("latest")]
+        public async Task<IActionResult> GetPersonalAndLatestDayDataAsync([FromBody] GetPersonalAndLatestDayDataInputDTO request)
         {
-            if (string.IsNullOrEmpty(userId))
-            {
+            if (request == null || string.IsNullOrEmpty(request.Credentials.UserId))
                 return BadRequest(new { Message = "El UserId es requerido." });
-            }
-
-            var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-            if (string.IsNullOrEmpty(token))
-            {
-                return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
-            }
-
-            var uid = await _healthDataService.VerifyUserTokenAsync(token);
-            if (uid == null)
-            {
-                return Unauthorized(new { Message = "El token generado no es válido." });
-            }
 
             try
             {
-                var healthData = await _healthDataService.GetPersonalAndLatestDayDataAsync(userId, token);
-                if (healthData == null)
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
                 {
-                    return NotFound(new { Message = "Datos no encontrados." });
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
                 }
+                var healthData = await _healthDataService.GetPersonalAndLatestDayDataAsync(request);
+                if (healthData == null)
+                    return NotFound(new { Message = "Datos no encontrados." });
 
                 return Ok(healthData);
             }
@@ -488,36 +413,25 @@ namespace Api.Controllers
             }
         }
 
-        [HttpGet("personal/{userId}")]
-        public async Task<IActionResult> GetPersonalDataAsync(string userId)
+        [HttpPost("personal")]
+        public async Task<IActionResult> GetPersonalDataAsync([FromBody] GetPersonalDataInputDTO request)
         {
-            if (string.IsNullOrEmpty(userId))
-            {
+            if (request == null || string.IsNullOrEmpty(request.Credentials.UserId))
                 return BadRequest(new { Message = "El UserId es requerido." });
-            }
 
             try
             {
-                // Aquí pasamos el token que previamente hayas obtenido (por ejemplo, usando un método de autenticación)
-                var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-                if (string.IsNullOrEmpty(token))
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
                 {
-                    return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
                 }
-
-                // Verificación del token
-                var uid = await _healthDataService.VerifyUserTokenAsync(token);
-                if (uid == null)
-                {
-                    return Unauthorized(new { Message = "El token generado no es válido." });
-                }
-
-                // Obtener los datos personales
-                var personalData = await _healthDataService.GetPersonalDataAsync(userId, token);
+                var personalData = await _healthDataService.GetPersonalDataAsync(request);
                 if (personalData == null)
-                {
                     return NotFound(new { Message = "Datos personales no encontrados para el usuario." });
-                }
 
                 return Ok(personalData);
             }
@@ -526,60 +440,53 @@ namespace Api.Controllers
                 return StatusCode(500, new { Message = $"Error al obtener los datos: {ex.Message}" });
             }
         }
-        [HttpGet("get-pdf/{userId}")]
-        public async Task<IActionResult> DownloadPdf(string userId)
+
+        [HttpPost("get-pdf")]
+        public async Task<IActionResult> DownloadPdf([FromBody] PdfInputDTO request)
         {
-            if (string.IsNullOrEmpty(userId))
-            {
+            if (request == null || string.IsNullOrEmpty(request.Credentials.UserId))
                 return BadRequest(new { Message = "El UserId es requerido." });
-            }
-
-            var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-            if (string.IsNullOrEmpty(token))
-            {
-                return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
-            }
-
-            var uid = await _healthDataService.VerifyUserTokenAsync(token);
-            if (uid == null)
-            {
-                return Unauthorized(new { Message = "El token generado no es válido." });
-            }
-
-            var pdfBytes = await _healthDataService.GeneratePdfAsync(userId, token);
-            return File(pdfBytes, "application/pdf", "datosSalud.pdf");
-        }
-
-        [HttpGet("get-connection/{userId}")]
-        public async Task<IActionResult> GetConnectionStatusAsync(string userId)
-        {
-            if (string.IsNullOrEmpty(userId))
-            {
-                return BadRequest(new { Message = "El UserId es requerido." });
-            }
-
-            var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-            if (string.IsNullOrEmpty(token))
-            {
-                return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
-            }
-
-            var uid = await _healthDataService.VerifyUserTokenAsync(token);
-            if (uid == null)
-            {
-                return Unauthorized(new { Message = "El token generado no es válido." });
-            }
 
             try
             {
-                var connectionStatus = await _healthDataService.GetConnectionStatusAsync(userId, token);
-
-                if (connectionStatus == null)
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
                 {
-                    return NotFound(new { Message = "No se encontró el estado de conexión." });
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
                 }
+                var pdfOutput = await _healthDataService.GeneratePdfAsync(request);
+                return File(pdfOutput.PdfBytes, "application/pdf", "datosSalud.pdf");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Error al generar el PDF: {ex.Message}" });
+            }
+        }
 
-                return Ok(new { ConnectionStatus = connectionStatus });
+        [HttpPost("get-connection")]
+        public async Task<IActionResult> GetConnectionStatusAsync([FromBody] GetConnectionStatusInputDTO request)
+        {
+            if (request == null || string.IsNullOrEmpty(request.Credentials.UserId))
+                return BadRequest(new { Message = "El UserId es requerido." });
+
+            try
+            {
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
+                {
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                var connectionStatus = await _healthDataService.GetConnectionStatusAsync(request);
+                if (connectionStatus == null)
+                    return NotFound(new { Message = "No se encontró el estado de conexión." });
+
+                return Ok(new { ConnectionStatus = connectionStatus.ConnectionStatus });
             }
             catch (Exception ex)
             {
@@ -587,6 +494,7 @@ namespace Api.Controllers
             }
         }
     }
+
 }
 
 

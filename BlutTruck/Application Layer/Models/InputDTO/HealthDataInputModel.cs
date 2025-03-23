@@ -2,13 +2,13 @@
 {
     public class HealthDataInputModel
     {
-        public required string UserId { get; set; }
+        public string? UserId { get; set; }
         public int? Steps { get; set; }
         public double? ActiveCalories { get; set; }
 
-        public List<int?> HeartRates { get; set; } = new List<int?>();
+        public List<int?>? HeartRates { get; set; } = new List<int?>();
 
-        public List<HeartRateDataPoint> HeartRateData { get; set; } = new List<HeartRateDataPoint>();
+        public List<HeartRateDataPoint>? HeartRateData { get; set; } = new List<HeartRateDataPoint>();
 
         public double? AvgHeartRate => HeartRates?.Where(x => x.HasValue).Select(x => x.Value).Any() == true
             ? HeartRates.Where(x => x.HasValue).Select(x => x.Value).Average()
@@ -26,21 +26,22 @@
         public double? Weight { get; set; }
         public double? Height { get; set; }
 
-        public List<BloodPressureDataPoint> BloodPressureData { get; set; } = new List<BloodPressureDataPoint>();
+        public List<BloodPressureDataPoint>? BloodPressureData { get; set; } = new List<BloodPressureDataPoint>();
 
-        public List<OxygenSaturationDataPoint> OxygenSaturationData { get; set; } = new List<OxygenSaturationDataPoint>();
+        public List<OxygenSaturationDataPoint>? OxygenSaturationData { get; set; } = new List<OxygenSaturationDataPoint>();
 
-        public List<BloodGlucoseDataPoint> BloodGlucoseData { get; set; } = new List<BloodGlucoseDataPoint>();
+        public List<BloodGlucoseDataPoint>? BloodGlucoseData { get; set; } = new List<BloodGlucoseDataPoint>();
 
         public double? BodyTemperature { get; set; }
-        public List<TemperatureDataPoint> TemperatureData { get; set; } = new List<TemperatureDataPoint>();
+        public List<TemperatureDataPoint>? TemperatureData { get; set; } = new List<TemperatureDataPoint>();
 
-        public List<RespiratoryRateDataPoint> RespiratoryRateData { get; set; } = new List<RespiratoryRateDataPoint>();
+        public List<RespiratoryRateDataPoint>? RespiratoryRateData { get; set; } = new List<RespiratoryRateDataPoint>();
 
-        public List<SleepSessionDataPoint> SleepData { get; set; } = new List<SleepSessionDataPoint>();
+        public List<SleepSessionDataPoint>? SleepData { get; set; } = new List<SleepSessionDataPoint>();
     }
 
-    public class HeartRateDataPoint
+
+public class HeartRateDataPoint
     {
         public DateTime Time { get; set; }
         public int BPM { get; set; }

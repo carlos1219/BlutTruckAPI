@@ -15,22 +15,26 @@ namespace BlutTruck.Data_Access_Layer.IRepositories
     {
         Task<string> GetTokenAsync();
         Task<string> VerifyIdTokenAsync(string idToken);
-        Task WriteDataAsync(string userId, HealthDataInputModel data, string idToken);
-        Task<object> ReadDataAsync(string userId, string idToken);
-        Task<HealthDataOutputModel> GetSelectDateHealthDataAsync(string userId, string dateKey, string idToken);
-        Task<FullDataOutputDTO> GetFullHealthDataAsync(string userId, string idToken);
-        Task<bool> SaveUserProfileAsync(string userId, string idToken, PersonalDataModel profile);
-        Task<object> GetPersonalAndLatestDayDataAsync(string userId, string idToken);
-        Task<PersonalDataModel> GetPersonalDataAsync(string userId, string idToken);
-        Task<bool> UpdateConnectionStatusAsync(string userId, string idToken, ConnectionModel connect);
-        Task<int?> GetConnectionStatusAsync(string userId, string idToken);
-        Task<string> RegisterConnectionAsync(string currentUserId, string connectedUserId, string idToken);
-        Task<string> DeleteConnectionAsync(string currentUserId, string connectedUserId, string idToken);
-        Task<List<ConnectedUserModel>> GetConnectedUsersAsync(string currentUserId, string idToken);
-        Task<string> RegisterUserAsync(string email, string password, string name);
-        Task<LoginResult> LoginUserAsync(string email, string password);
-        Task<List<MonitorUserModel>> GetMonitoringUsersAsync(string currentUserId, string idToken);
+        Task WriteDataAsync(WriteDataInputDTO request);
+        Task<ReadDataOutputDTO> ReadDataAsync(ReadDataInputDTO request);
+        Task<HealthDataOutputModel> GetSelectDateHealthDataAsync(SelectDateHealthDataInputDTO request);
+        Task<FullDataOutputDTO> GetFullHealthDataAsync(UserCredentials credentials);
+
+        Task<SaveUserProfileOutputDTO> SaveUserProfileAsync(SaveUserProfileInputDTO request);
+        Task<PersonalAndLatestDayDataOutputDTO> GetPersonalAndLatestDayDataAsync(GetPersonalAndLatestDayDataInputDTO request);
+        Task<GetPersonalDataOutputDTO> GetPersonalDataAsync(GetPersonalDataInputDTO request);
+
+        Task<UpdateConnectionStatusOutputDTO> UpdateConnectionStatusAsync(UpdateConnectionStatusInputDTO request);
+        Task<GetConnectionStatusOutputDTO> GetConnectionStatusAsync(GetConnectionStatusInputDTO request);
+        Task<RegisterConnectionOutputDTO> RegisterConnectionAsync(RegisterConnectionInputDTO request);
+        Task<DeleteConnectionOutputDTO> DeleteConnectionAsync(DeleteConnectionInputDTO request);
+
+        Task<List<ConnectedUserModel>> GetConnectedUsersAsync(ConnectedUsersInputDTO request);
+        Task<RegisterUserOutputDTO> RegisterUserAsync(RegisterUserInputDTO request);
+        Task<LoginUserOutputDTO> LoginUserAsync(LoginUserInputDTO request);
+        Task<GetMonitoringUsersOutputDTO> GetMonitoringUsersAsync(GetMonitoringUsersInputDTO request);
+
         Task ChangePasswordAsync(ChangePasswordRequestInputDTO input);
-        Task<byte[]> GeneratePdfAsync(string userId, string idToken);
+        Task<PdfOutputDTO> GeneratePdfAsync(PdfInputDTO request);
     }
 }
