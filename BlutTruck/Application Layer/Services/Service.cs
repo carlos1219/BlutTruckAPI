@@ -11,6 +11,8 @@
     using Firebase.Auth;
     using Google.Type;
     using static BlutTruck.Data_Access_Layer.Repositories.HealthDataRepository;
+    using BlutTruck.Application_Layer.Models.InputDTO;
+    using BlutTruck.Application_Layer.Models.OutputDTO;
 
     public class HealthDataService : IHealthDataService
     {
@@ -31,9 +33,18 @@
             return await _healthDataRepository.VerifyIdTokenAsync(idToken);
         }
 
+        public async  Task<DeleteUserOutputDTO> DeleteUserAsync(DeleteUserInputDTO request)
+        {
+            return await _healthDataRepository.DeleteUserAsync(request);
+        }
         public Task WriteDataAsync(WriteDataInputDTO request)
         {
             return _healthDataRepository.WriteDataAsync(request);
+        }
+
+        public Task writePredictionAsync(PredictionInputDTO request)
+        {
+            return _healthDataRepository.writePredictionAsync(request);
         }
 
         public Task<ReadDataOutputDTO> ReadDataAsync(ReadDataInputDTO request)
@@ -83,6 +94,21 @@
         public Task<RegisterConnectionOutputDTO> RegisterConnectionAsync(RegisterConnectionInputDTO request)
         {
             return _healthDataRepository.RegisterConnectionAsync(request);
+        }
+
+        public Task<RegisterConnectionOutputDTO> RegisterCodeConnectionAsync(RegisterCodeConnectionInputDTO request)
+        {
+            return _healthDataRepository.RegisterCodeConnectionAsync(request);
+
+        }
+       public Task<DeleteConnectionOutputDTO> DeleteCodeConnectionAsync(DeleteCodeConnectionInputDTO request)
+        {
+            return _healthDataRepository.DeleteCodeConnectionAsync(request);
+
+        }
+       public Task<GetConnectionOutputDTO> GetCodeConnectionAsync(DeleteCodeConnectionInputDTO request)
+        {
+            return _healthDataRepository.GetCodeConnectionAsync(request);
         }
 
         public Task<DeleteConnectionOutputDTO> DeleteConnectionAsync(DeleteConnectionInputDTO request)

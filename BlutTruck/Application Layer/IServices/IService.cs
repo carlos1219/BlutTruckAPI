@@ -1,5 +1,7 @@
 ﻿using System.Threading.Tasks;
 using BlutTruck.Application_Layer.Models;
+using BlutTruck.Application_Layer.Models.InputDTO;
+using BlutTruck.Application_Layer.Models.OutputDTO;
 using static BlutTruck.Application_Layer.Models.PersonalDataModel;
 using static BlutTruck.Data_Access_Layer.Repositories.HealthDataRepository;
 
@@ -21,6 +23,7 @@ namespace BlutTruck.Application_Layer.IServices
         Task<string> VerifyUserTokenAsync(string idToken);
 
         Task WriteDataAsync(WriteDataInputDTO request);
+        Task writePredictionAsync(PredictionInputDTO request);
         Task<ReadDataOutputDTO> ReadDataAsync(ReadDataInputDTO request);
         Task<HealthDataOutputModel> GetSelectDateHealthDataAsync(SelectDateHealthDataInputDTO request);
         Task<FullDataOutputDTO> GetFullHealthDataAsync(UserCredentials credentials);
@@ -37,5 +40,9 @@ namespace BlutTruck.Application_Layer.IServices
         Task<GetMonitoringUsersOutputDTO> GetMonitoringUsersAsync(GetMonitoringUsersInputDTO request);
         Task ChangePasswordAsync(ChangePasswordRequestInputDTO input);
         Task<PdfOutputDTO> GeneratePdfAsync(PdfInputDTO request);
+        Task<RegisterConnectionOutputDTO> RegisterCodeConnectionAsync(RegisterCodeConnectionInputDTO request);
+        Task<DeleteConnectionOutputDTO> DeleteCodeConnectionAsync(DeleteCodeConnectionInputDTO request);
+        Task<GetConnectionOutputDTO> GetCodeConnectionAsync(DeleteCodeConnectionInputDTO request);
+        Task<DeleteUserOutputDTO> DeleteUserAsync(DeleteUserInputDTO request);
     }
 }

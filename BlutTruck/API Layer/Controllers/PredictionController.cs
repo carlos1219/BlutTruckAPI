@@ -4,15 +4,22 @@ using System.Threading.Tasks;
 using BlutTruck.Application_Layer.IServices;
 using Microsoft.AspNetCore.Mvc;
 using Firebase.Database;
-using System.Threading.Tasks;
 using Firebase.Database.Query;
 using Firebase.Auth;
 using Google.Api;
 using Firebase.Auth.Providers;
 using BlutTruck.Application_Layer.Models;
+using System.Linq;
+using System;
+using BlutTruck.Application_Layer.Models.InputDTO;
 
 namespace BlutTruck.API_Layer.Controllers
 {
+    public class PredictionRequestDTO
+    {
+        public string UserId { get; set; } = string.Empty;
+    }
+
     [ApiController]
     [Route("api/[controller]")]
     public class PrediccionController : ControllerBase
@@ -25,11 +32,14 @@ namespace BlutTruck.API_Layer.Controllers
             _prediccionService = prediccionService;
             _healthDataService = healthDataService;
         }
-        [HttpGet("PredictHealthRisk/{userId}")]
-        public async Task<IActionResult> PredictHealthRisk(string userId)
+
+        [HttpPost("PredictHealthRisk")]
+        public async Task<IActionResult> PredictHealthRisk([FromBody] PredictionRequestDTO requestDto)
         {
             try
             {
+                string userId = requestDto.UserId;
+
                 // Autenticación y verificación del token
                 var token = await _healthDataService.AuthenticateAndGetTokenAsync();
                 if (string.IsNullOrEmpty(token))
@@ -42,6 +52,7 @@ namespace BlutTruck.API_Layer.Controllers
                 {
                     return Unauthorized(new { Message = "El token generado no es válido." });
                 }
+
                 var request = new GetPersonalAndLatestDayDataInputDTO
                 {
                     Credentials = new UserCredentials
@@ -56,9 +67,8 @@ namespace BlutTruck.API_Layer.Controllers
                     return BadRequest(personalAndLatestDayData.ErrorMessage);
                 }
 
-                dynamic data = personalAndLatestDayData;
-                var personalData = data.DatosPersonales;
-                var latestDayData = data.DiaMasReciente.Datos;
+                PersonalDataModel personalData = personalAndLatestDayData.PersonalData;
+                HealthDataOutputModel latestDayData = personalAndLatestDayData.DiaMasReciente.Datos;
 
                 if (!DateTime.TryParse(personalData.DateOfBirth, out DateTime dateOfBirth))
                 {
@@ -79,16 +89,31 @@ namespace BlutTruck.API_Layer.Controllers
                 // Definir thresholds para los parámetros (valores de ejemplo)
                 const double thresholdGlucosa = 140;          // mg/dL
                 const double thresholdPresionSistolica = 110;   // mmHg
-                const double thresholdPresionDiastolica = 90;   // mmHg
+                const double thresholdPresionDiastolica = 90;    // mmHg
                 const double thresholdColesterol = 240;         // mg/dL
+
+                // Obtener las últimas lecturas de glucosa y presión arterial
+                var latestGlucose = latestDayData.BloodGlucoseData?.LastOrDefault();
+                var latestBloodPressure = latestDayData.BloodPressureData?.LastOrDefault();
+
+                double bloodGlucose = latestGlucose?.BloodGlucose ?? 0;
+                double systolicPressure = latestBloodPressure?.Systolic ?? 120;
+                double diastolicPressure = latestBloodPressure?.Diastolic ?? 60;
+                double cholesterol = Convert.ToDouble(personalData.Choresterol ?? 0);
+
+                var requestdbprediction = new PredictionInputDTO
+                {
+                    Credentials = new UserCredentials
+                    {
+                        UserId = userId,
+                        IdToken = token
+                    },
+                    Prediction = predictionResult
+                };
+                await _healthDataService.writePredictionAsync(requestdbprediction);
 
                 // Evaluar cada parámetro y acumular alertas específicas
                 var riskAlerts = new List<(string parameter, double value, string message)>();
-
-                double bloodGlucose = Convert.ToDouble(latestDayData.BloodGlucose ?? 0);
-                double systolicPressure = Convert.ToDouble(latestDayData.BloodPressureSystolic ?? 120);
-                double diastolicPressure = Convert.ToDouble(latestDayData.BloodPressureDiastolic ?? 60);
-                double cholesterol = Convert.ToDouble(personalData.Choresterol ?? 0);
 
                 if (bloodGlucose > thresholdGlucosa)
                 {
@@ -141,7 +166,7 @@ namespace BlutTruck.API_Layer.Controllers
                 return Ok(new
                 {
                     Prediccion = predictionResult,
-                    Fecha = data.DiaMasReciente.Fecha,
+                    Fecha = personalAndLatestDayData.DiaMasReciente.Fecha,
                     DatosUtilizados = predictionRequest,
                     AlertasEspecificas = riskAlerts
                 });
@@ -152,23 +177,26 @@ namespace BlutTruck.API_Layer.Controllers
             }
         }
 
-        private Dictionary<string, object> MapToPredictionRequest(dynamic personalData, dynamic latestDayData, int edad)
+        private Dictionary<string, object> MapToPredictionRequest(PersonalDataModel personalData, HealthDataOutputModel latestDayData, int edad)
         {
+            var latestBloodPressure = latestDayData.BloodPressureData?.LastOrDefault();
+            var latestGlucose = latestDayData.BloodGlucoseData?.LastOrDefault();
+
             var predictionRequest = new Dictionary<string, object>
-    {
-        { "edad", edad },
-        { "genero", personalData.Gender ?? 1 },
-        { "altura_cm", personalData.Height },
-        { "peso_kg", personalData.Weight ?? 0 },
-        { "presion_sistolica", latestDayData.BloodPressureSystolic ?? 120 },
-        { "presion_diastolica", latestDayData.BloodPressureDiastolic ?? 60 },
-        { "colesterol", personalData.Choresterol ?? 0 },
-        { "glucosa", latestDayData.BloodGlucose ?? 0 },
-        { "fuma", personalData.Smoke ?? false },
-        { "bebe_alcohol", personalData.Alcohol ?? false },
-        { "activo", personalData.Active ?? true },
-        { "enfermedad_cardiaca", personalData.HasPredisposition ?? false }
-    };
+            {
+                { "edad", edad },
+                { "genero", personalData.Gender ?? 1 },
+                { "altura_cm", latestDayData.Height ?? personalData.Height ?? 0 },
+                { "peso_kg", latestDayData.Weight ?? personalData.Weight ?? 0 },
+                { "presion_sistolica", latestBloodPressure?.Systolic ?? 120 },
+                { "presion_diastolica", latestBloodPressure?.Diastolic ?? 60 },
+                { "colesterol", personalData.Choresterol ?? 0 },
+                { "glucosa", latestGlucose?.BloodGlucose ?? 0 },
+                { "fuma", personalData.Smoke ?? 0 },
+                { "bebe_alcohol", personalData.Alcohol ?? 0 },
+                { "activo", personalData.Active ?? true },
+                { "enfermedad_cardiaca", personalData.HasPredisposition ?? false }
+            };
 
             return predictionRequest;
         }
@@ -203,77 +231,77 @@ namespace BlutTruck.API_Layer.Controllers
                         From = new MailAddress("empresa.bluttruck@gmail.com", "BlutTruck Health Team"),
                         Subject = "⚠️ Alerta: Alto Riesgo de Salud Detectado",
                         Body = $@"
-            <html>
-            <head>
-                <style>
-                    body {{
-                        font-family: Arial, sans-serif;
-                        line-height: 1.6;
-                        background-color: #f4f4f9;
-                        margin: 0;
-                        padding: 0;
-                    }}
-                    .email-container {{
-                        max-width: 600px;
-                        margin: 20px auto;
-                        background-color: #ffffff;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-                        padding: 20px;
-                    }}
-                    .header {{
-                        background-color: #007bff;
-                        color: #ffffff;
-                        padding: 10px 20px;
-                        border-radius: 8px 8px 0 0;
-                        text-align: center;
-                        font-size: 24px;
-                        font-weight: bold;
-                    }}
-                    .content {{
-                        padding: 20px;
-                        color: #333333;
-                    }}
-                    .footer {{
-                        text-align: center;
-                        margin-top: 20px;
-                        font-size: 12px;
-                        color: #777777;
-                    }}
-                    .btn {{
-                        display: inline-block;
-                        margin-top: 10px;
-                        padding: 10px 20px;
-                        color: #ffffff;
-                        background-color: #28a745;
-                        text-decoration: none;
-                        border-radius: 4px;
-                        font-weight: bold;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div class='email-container'>
-                    <div class='header'>
-                        Alerta de Salud de BlutTruck
-                    </div>
-                    <div class='content'>
-                        <p>Estimado usuario,</p>
-                        <p>Los resultados de nuestro análisis indican un <strong>alto riesgo global</strong> en su salud.</p>
-                        <ul>
-                            <li><strong>Riesgo Detectado:</strong> {truncatedResult}</li>
-                        </ul>
-                        <p>Por favor, contacte a un médico lo antes posible.</p>
-                        <a href='mailto:support@bluttruck.com' class='btn'>Contactar Soporte</a>
-                    </div>
-                    <div class='footer'>
-                        Este correo es generado automáticamente por nuestro sistema. Si tiene preguntas, contáctenos en support@bluttruck.com.
-                        <br />
-                        © 2025 BlutTruck Health Services
-                    </div>
-                </div>
-            </body>
-            </html>",
+<html>
+<head>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+        }}
+        .email-container {{
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }}
+        .header {{
+            background-color: #007bff;
+            color: #ffffff;
+            padding: 10px 20px;
+            border-radius: 8px 8px 0 0;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+        }}
+        .content {{
+            padding: 20px;
+            color: #333333;
+        }}
+        .footer {{
+            text-align: center;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #777777;
+        }}
+        .btn {{
+            display: inline-block;
+            margin-top: 10px;
+            padding: 10px 20px;
+            color: #ffffff;
+            background-color: #28a745;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }}
+    </style>
+</head>
+<body>
+    <div class='email-container'>
+        <div class='header'>
+            Alerta de Salud de BlutTruck
+        </div>
+        <div class='content'>
+            <p>Estimado usuario,</p>
+            <p>Los resultados de nuestro análisis indican un <strong>alto riesgo global</strong> en su salud.</p>
+            <ul>
+                <li><strong>Riesgo Detectado:</strong> {truncatedResult}</li>
+            </ul>
+            <p>Por favor, contacte a un médico lo antes posible.</p>
+            <a href='mailto:support@bluttruck.com' class='btn'>Contactar Soporte</a>
+        </div>
+        <div class='footer'>
+            Este correo es generado automáticamente por nuestro sistema. Si tiene preguntas, contáctenos en support@bluttruck.com.
+            <br />
+            © 2025 BlutTruck Health Services
+        </div>
+    </div>
+</body>
+</html>",
                         IsBodyHtml = true
                     };
                     mailMessage.To.Add(email);
@@ -304,75 +332,75 @@ namespace BlutTruck.API_Layer.Controllers
                         From = new MailAddress("empresa.bluttruck@gmail.com", "BlutTruck Health Team"),
                         Subject = "⚠️ Alerta: Riesgo Específico Detectado",
                         Body = $@"
-            <html>
-            <head>
-                <style>
-                    body {{
-                        font-family: Arial, sans-serif;
-                        line-height: 1.6;
-                        background-color: #f4f4f9;
-                        margin: 0;
-                        padding: 0;
-                    }}
-                    .email-container {{
-                        max-width: 600px;
-                        margin: 20px auto;
-                        background-color: #ffffff;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-                        padding: 20px;
-                    }}
-                    .header {{
-                        background-color: #007bff;
-                        color: #ffffff;
-                        padding: 10px 20px;
-                        border-radius: 8px 8px 0 0;
-                        text-align: center;
-                        font-size: 24px;
-                        font-weight: bold;
-                    }}
-                    .content {{
-                        padding: 20px;
-                        color: #333333;
-                    }}
-                    .footer {{
-                        text-align: center;
-                        margin-top: 20px;
-                        font-size: 12px;
-                        color: #777777;
-                    }}
-                    .btn {{
-                        display: inline-block;
-                        margin-top: 10px;
-                        padding: 10px 20px;
-                        color: #ffffff;
-                        background-color: #28a745;
-                        text-decoration: none;
-                        border-radius: 4px;
-                        font-weight: bold;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div class='email-container'>
-                    <div class='header'>
-                        Alerta de Salud de BlutTruck
-                    </div>
-                    <div class='content'>
-                        <p>Estimado usuario,</p>
-                        <p>Se han detectado las siguientes anomalías en sus parámetros de salud:</p>
-                        <p>{riskDetails}</p>
-                        <p>Le recomendamos contactar a un médico o a nuestro equipo de soporte para mayor información.</p>
-                        <a href='mailto:support@bluttruck.com' class='btn'>Contactar Soporte</a>
-                    </div>
-                    <div class='footer'>
-                        Este correo es generado automáticamente por nuestro sistema. Si tiene preguntas, contáctenos en support@bluttruck.com.
-                        <br />
-                        © 2025 BlutTruck Health Services
-                    </div>
-                </div>
-            </body>
-            </html>",
+<html>
+<head>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+        }}
+        .email-container {{
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }}
+        .header {{
+            background-color: #007bff;
+            color: #ffffff;
+            padding: 10px 20px;
+            border-radius: 8px 8px 0 0;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+        }}
+        .content {{
+            padding: 20px;
+            color: #333333;
+        }}
+        .footer {{
+            text-align: center;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #777777;
+        }}
+        .btn {{
+            display: inline-block;
+            margin-top: 10px;
+            padding: 10px 20px;
+            color: #ffffff;
+            background-color: #28a745;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }}
+    </style>
+</head>
+<body>
+    <div class='email-container'>
+        <div class='header'>
+            Alerta de Salud de BlutTruck
+        </div>
+        <div class='content'>
+            <p>Estimado usuario,</p>
+            <p>Se han detectado las siguientes anomalías en sus parámetros de salud:</p>
+            <p>{riskDetails}</p>
+            <p>Le recomendamos contactar a un médico o a nuestro equipo de soporte para mayor información.</p>
+            <a href='mailto:support@bluttruck.com' class='btn'>Contactar Soporte</a>
+        </div>
+        <div class='footer'>
+            Este correo es generado automáticamente por nuestro sistema. Si tiene preguntas, contáctenos en support@bluttruck.com.
+            <br />
+            © 2025 BlutTruck Health Services
+        </div>
+    </div>
+</body>
+</html>",
                         IsBodyHtml = true
                     };
                     mailMessage.To.Add(email);
@@ -385,11 +413,5 @@ namespace BlutTruck.API_Layer.Controllers
                 Console.WriteLine($"Error al enviar la alerta específica: {ex.Message}");
             }
         }
-
-
-
-
-
     }
-
-    }
+}

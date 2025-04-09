@@ -19,6 +19,9 @@ using static BlutTruck.Application_Layer.Models.PersonalDataModel;
 using Microsoft.AspNetCore.Mvc;
 using iTextSharp.text;
 using iTextSharp.text.pdf;
+using BlutTruck.Application_Layer.Models.InputDTO;
+using BlutTruck.Application_Layer.Models.OutputDTO;
+using Newtonsoft.Json.Linq;
 
 
 namespace BlutTruck.Data_Access_Layer.Repositories
@@ -73,13 +76,53 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             var firebaseClient = new FirebaseClient(
                 _databaseUrl,
                 new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+            var dto = new GetConnectionStatusInputDTO
+            {
+                Credentials = new UserCredentials
+                {
+                    UserId = request.Credentials.UserId,
+                    IdToken = request.Credentials.IdToken
+                }
+            };
 
-            await firebaseClient
-                .Child("healthData")
-                .Child(request.Credentials.UserId)
-                .Child("dias")
-                .Child(currentDate)
-                .PutAsync(request.HealthData);
+
+            GetConnectionStatusOutputDTO status = await  GetConnectionStatusAsync(dto);
+            if( 1 == status.ConnectionStatus)
+            {
+                await firebaseClient
+              .Child("healthData")
+              .Child(request.Credentials.UserId)
+              .Child("dias")
+              .Child(currentDate)
+              .PutAsync(request.HealthData);
+            }
+        }
+
+        public async Task writePredictionAsync(PredictionInputDTO request)
+        {
+            var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            var firebaseClient = new FirebaseClient(
+                _databaseUrl,
+                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+            var dto = new GetConnectionStatusInputDTO
+            {
+                Credentials = new UserCredentials
+                {
+                    UserId = request.Credentials.UserId,
+                    IdToken = request.Credentials.IdToken
+                }
+            };
+
+
+            GetConnectionStatusOutputDTO status = await GetConnectionStatusAsync(dto);
+            if (1 == status.ConnectionStatus)
+            {
+                await firebaseClient
+              .Child("healthData")
+              .Child(request.Credentials.UserId)
+              .Child("Prediccion")
+              .PutAsync(request.Prediction);
+            }
         }
 
         public async Task<ReadDataOutputDTO> ReadDataAsync(ReadDataInputDTO request)
@@ -249,13 +292,11 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             // Se obtiene el objeto con los datos completos.
             FullDataOutputDTO fullData = await this.GetFullHealthDataAsync(request.Credentials);
 
-            // Si no se obtuvieron datos, se puede manejar el error según tu lógica (por ejemplo, lanzar una excepción)
             if (fullData == null)
             {
                 throw new Exception("No se encontraron datos para el usuario especificado.");
             }
 
-            // Creamos el documento PDF en memoria
             using (var ms = new MemoryStream())
             {
                 Document document = new Document(PageSize.A4, 50, 50, 25, 25);
@@ -263,16 +304,62 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 document.Open();
 
                 // ------------------------
+                // Sección: Encabezado
+                // ------------------------
+
+                // Define la fuente para el encabezado
+                var headerFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 16);
+
+                // Cargar la imagen (ajusta la ruta según corresponda)
+                Image logo = Image.GetInstance("C:\\Users\\Carlos\\Desktop\\C#\\BlutTruck - copia - copia\\BlutTruck\\Recursos\\logo.png");
+                logo.ScaleAbsolute(50, 50);
+                // Se omite asignar la alineación en la imagen, ya que se define en la celda
+
+                // Crea el título de la app
+                Paragraph appTitle = new Paragraph("BlutTruck", headerFont);
+
+                // Crear una tabla de 2 columnas con ancho reducido y centrado en la página
+                PdfPTable headerTable = new PdfPTable(2);
+                headerTable.WidthPercentage = 50; // Reduce el ancho de la tabla para que se centre mejor
+                headerTable.HorizontalAlignment = Element.ALIGN_LEFT;
+                headerTable.SetWidths(new float[] { 1, 3 }); // Ajusta el ancho de cada columna según lo necesites
+
+                // Celda para la imagen (centrada)
+                PdfPCell cellLogo = new PdfPCell(logo)
+                {
+                    Border = Rectangle.NO_BORDER,
+                    HorizontalAlignment = Element.ALIGN_CENTER,
+                    VerticalAlignment = Element.ALIGN_MIDDLE,
+                    Padding = 0
+                };
+                headerTable.AddCell(cellLogo);
+
+                // Celda para el título (con margen a la izquierda para separarlo un poco)
+                PdfPCell cellTitle = new PdfPCell(appTitle)
+                {
+                    Border = Rectangle.NO_BORDER,
+                    HorizontalAlignment = Element.ALIGN_LEFT,
+                    VerticalAlignment = Element.ALIGN_MIDDLE,
+                    PaddingLeft = 5,
+                    Padding = 0
+                };
+                headerTable.AddCell(cellTitle);
+
+                // Agregar la tabla de encabezado al documento
+                document.Add(headerTable);
+                // Salto de línea para separar el encabezado del contenido
+                document.Add(new Paragraph(" "));
+
+                // ------------------------
                 // Sección: Datos Personales
                 // ------------------------
-                var headerFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 16);
                 document.Add(new Paragraph("Datos Personales", headerFont));
                 document.Add(new Paragraph($"Nombre: {fullData.DatosPersonales.Name}"));
                 document.Add(new Paragraph($"Fecha de nacimiento: {fullData.DatosPersonales.DateOfBirth}"));
                 document.Add(new Paragraph($"Altura: {fullData.DatosPersonales.Height}"));
                 document.Add(new Paragraph($"Peso: {fullData.DatosPersonales.Weight}"));
                 document.Add(new Paragraph($"Género: {fullData.DatosPersonales.Gender}"));
-                document.Add(new Paragraph(" ")); // Línea en blanco
+                document.Add(new Paragraph(" "));
 
                 // ------------------------
                 // Sección: Datos de Días
@@ -288,7 +375,6 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                     document.Add(new Paragraph($"Fecha: {fecha}", subHeaderFont));
                     document.Add(new Paragraph($"Pasos: {diaData.Steps}"));
 
-                    // Datos de Ritmo Cardíaco
                     if (diaData.HeartRateData != null && diaData.HeartRateData.Any())
                     {
                         document.Add(new Paragraph("Datos de Ritmo Cardíaco:"));
@@ -298,7 +384,6 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                         }
                     }
 
-                    // Datos de Temperatura
                     if (diaData.TemperatureData != null && diaData.TemperatureData.Any())
                     {
                         document.Add(new Paragraph("Datos de Temperatura:"));
@@ -318,6 +403,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
         }
 
+
         public async Task<SaveUserProfileOutputDTO> SaveUserProfileAsync(SaveUserProfileInputDTO request)
         {
             var response = new SaveUserProfileOutputDTO();
@@ -333,6 +419,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                     .Child("datos_personales");
 
                 await profileRef.PutAsync(request.Profile);
+
                 response.Success = true;
                 return response;
             }
@@ -585,6 +672,85 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
         }
 
+        public async Task<RegisterConnectionOutputDTO> RegisterCodeConnectionAsync(RegisterCodeConnectionInputDTO request)
+        {
+            var response = new RegisterConnectionOutputDTO();
+            try
+            {
+                var firebaseClient = new FirebaseClient(
+                    _databaseUrl,
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.IdToken) });
+
+                var monitorData = new Dictionary<string, string>
+        {
+            { "Code", request.Code },
+            { "UserId", request.CurrentUserId }
+        };
+
+                // Guardar la conexión en el usuario actual
+                var pathConnection = $"/Codes/{request.Code}";
+                await firebaseClient.Child(pathConnection).PutAsync(monitorData);
+
+                response.Success = true;
+                response.Message = "Conexión registrada exitosamente y referencia inversa guardada";
+                return response;
+            }
+            catch (Exception ex)
+            {
+                response.Success = false;
+                response.ErrorMessage = $"Error al registrar la conexión: {ex.Message}";
+                return response;
+            }
+        }
+
+        public async Task<DeleteConnectionOutputDTO> DeleteCodeConnectionAsync(DeleteCodeConnectionInputDTO request)
+        {
+            var response = new DeleteConnectionOutputDTO();
+            try
+            {
+                var firebaseClient = new FirebaseClient(
+                    _databaseUrl,
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.IdToken) });
+
+
+                var pathConnection = $"/Codes/{request.Code}";
+                await firebaseClient.Child(pathConnection).DeleteAsync();
+
+                response.Success = true;
+                response.Message = "Codigoborrado correctamente";
+                return response;
+            }
+            catch (Exception ex)
+            {
+                response.Success = false;
+                response.ErrorMessage = $"Error al registrar la conexión: {ex.Message}";
+                return response;
+            }
+        }
+
+        public async Task<GetConnectionOutputDTO> GetCodeConnectionAsync(DeleteCodeConnectionInputDTO request)
+        {
+            var response = new GetConnectionOutputDTO();
+            try
+            {
+                var firebaseClient = new FirebaseClient(
+                    _databaseUrl,
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.IdToken) });
+
+                var id = await firebaseClient
+                    .Child("Codes")
+                    .Child(request.Code)
+                    .OnceAsync<object>();
+                response.Id = id.ToArray()[1].Object.ToString();
+                return response;
+            }
+            catch (Exception ex)
+            {
+                response.ErrorMessage = $"Error al leer el codigo";
+                return response;
+            }
+        }
+
         public async Task<DeleteConnectionOutputDTO> DeleteConnectionAsync(DeleteConnectionInputDTO request)
         {
             var response = new DeleteConnectionOutputDTO();
@@ -615,8 +781,105 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             {
                 var userCredential = await _authClient.CreateUserWithEmailAndPasswordAsync(request.Email, request.Password);
                 var user = userCredential.User;
-                response.Token = await user.GetIdTokenAsync(); // Devuelve solo el token seguro
+                response.Token = await user.GetIdTokenAsync();
                 response.Success = true;
+                var userId = userCredential.User.Uid;
+
+
+                string token = await GetTokenAsync();
+                var firebaseClient = new FirebaseClient(
+                  _databaseUrl,
+                  new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(token) });
+                #region profile
+                var profile = new PersonalDataModel
+                {
+                    Conexion = new PersonalDataModel.ConnectionModel
+                    {
+                        ConnectionStatus = 0
+                    },
+                    DateOfBirth = null, // Puedes asignar una fecha en formato string o dejarla en null
+                    HasPredisposition = false,
+                    Height = 0,
+                    Weight = 0,
+                    Gender = 0,
+                    Smoke = 0,
+                    Alcohol = 0,
+                    Choresterol = 0,
+                    PhotoURL = null,
+                    Name = null,
+                    Active = false
+                };
+                #endregion profile
+
+                var profileRef = firebaseClient
+                   .Child("healthData")
+                   .Child(userId)
+                   .Child("datos_personales");
+                await profileRef.PutAsync(profile);
+                #region healthData
+                var healthData = new HealthDataInputModel
+                {
+                    UserId = null,
+                    Steps = 0,
+                    ActiveCalories = 0.0,
+                    // Puedes inicializar la lista con un valor 0 o dejarla vacía según tus necesidades
+                    HeartRates = new List<int?> { 0 },
+                    // Para las colecciones de data, se puede crear un único objeto con valores por defecto
+                    HeartRateData = new List<HeartRateDataPoint>
+    {
+        new HeartRateDataPoint { Time = DateTime.MinValue, BPM = 0 }
+    },
+                    RestingHeartRate = 0.0,
+                    Weight = 0.0,
+                    Height = 0.0,
+                    BloodPressureData = new List<BloodPressureDataPoint>
+    {
+        new BloodPressureDataPoint { Time = DateTime.MinValue, Systolic = 0.0, Diastolic = 0.0 }
+    },
+                    OxygenSaturationData = new List<OxygenSaturationDataPoint>
+    {
+        new OxygenSaturationDataPoint { Time = DateTime.MinValue, Percentage = 0.0 }
+    },
+                    BloodGlucoseData = new List<BloodGlucoseDataPoint>
+    {
+        new BloodGlucoseDataPoint { Time = DateTime.MinValue, BloodGlucose = 0.0 }
+    },
+                    BodyTemperature = 0.0,
+                    TemperatureData = new List<TemperatureDataPoint>
+    {
+        new TemperatureDataPoint { Time = DateTime.MinValue, Temperature = 0.0 }
+    },
+                    RespiratoryRateData = new List<RespiratoryRateDataPoint>
+    {
+        new RespiratoryRateDataPoint { Time = DateTime.MinValue, Rate = 0.0 }
+    },
+                    SleepData = new List<SleepSessionDataPoint>
+    {
+        new SleepSessionDataPoint
+        {
+            StartTime = DateTime.MinValue,
+            EndTime = DateTime.MinValue,
+            Stages = new List<SleepStageDataPoint>
+            {
+                new SleepStageDataPoint
+                {
+                    Type = null, // o string.Empty, si prefieres que sea cadena vacía
+                    StartTime = DateTime.MinValue,
+                    EndTime = DateTime.MinValue
+                }
+            }
+        }
+    }
+                };
+                #endregion healthData
+                var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
+                await firebaseClient
+              .Child("healthData")
+              .Child(userId)
+              .Child("dias")
+              .Child(currentDate)
+              .PutAsync(healthData);
+
             }
             catch (Firebase.Auth.FirebaseAuthException ex)
             {
@@ -643,6 +906,127 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 response.Success = false;
                 response.ErrorMessage = "Credenciales incorrectas";
             }
+            return response;
+        }
+
+        public async Task<DeleteUserOutputDTO> DeleteUserAsync(DeleteUserInputDTO request)
+        {
+            var response = new DeleteUserOutputDTO();
+            try
+            {
+                // Obtén el token para autenticar la operación sobre la base de datos.
+                string token = await GetTokenAsync();
+                var firebaseClient = new FirebaseClient(
+                    _databaseUrl,
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Token) }
+                );
+                await firebaseClient
+                    .Child("healthData")
+                    .Child(request.UserId)
+                    .DeleteAsync();
+                response.Success = true;
+
+                #region profile
+                var profile = new PersonalDataModel
+                {
+                    Conexion = new PersonalDataModel.ConnectionModel
+                    {
+                        ConnectionStatus = 0
+                    },
+                    DateOfBirth = null, // Puedes asignar una fecha en formato string o dejarla en null
+                    HasPredisposition = false,
+                    Height = 0,
+                    Weight = 0,
+                    Gender = 0,
+                    Smoke = 0,
+                    Alcohol = 0,
+                    Choresterol = 0,
+                    PhotoURL = null,
+                    Name = null,
+                    Active = false
+                };
+                #endregion profile
+
+                var profileRef = firebaseClient
+                   .Child("healthData")
+                   .Child(request.UserId)
+                   .Child("datos_personales");
+                await profileRef.PutAsync(profile);
+                #region healthData
+                var healthData = new HealthDataInputModel
+                {
+                    UserId = null,
+                    Steps = 0,
+                    ActiveCalories = 0.0,
+                    // Puedes inicializar la lista con un valor 0 o dejarla vacía según tus necesidades
+                    HeartRates = new List<int?> { 0 },
+                    // Para las colecciones de data, se puede crear un único objeto con valores por defecto
+                    HeartRateData = new List<HeartRateDataPoint>
+    {
+        new HeartRateDataPoint { Time = DateTime.MinValue, BPM = 0 }
+    },
+                    RestingHeartRate = 0.0,
+                    Weight = 0.0,
+                    Height = 0.0,
+                    BloodPressureData = new List<BloodPressureDataPoint>
+    {
+        new BloodPressureDataPoint { Time = DateTime.MinValue, Systolic = 0.0, Diastolic = 0.0 }
+    },
+                    OxygenSaturationData = new List<OxygenSaturationDataPoint>
+    {
+        new OxygenSaturationDataPoint { Time = DateTime.MinValue, Percentage = 0.0 }
+    },
+                    BloodGlucoseData = new List<BloodGlucoseDataPoint>
+    {
+        new BloodGlucoseDataPoint { Time = DateTime.MinValue, BloodGlucose = 0.0 }
+    },
+                    BodyTemperature = 0.0,
+                    TemperatureData = new List<TemperatureDataPoint>
+    {
+        new TemperatureDataPoint { Time = DateTime.MinValue, Temperature = 0.0 }
+    },
+                    RespiratoryRateData = new List<RespiratoryRateDataPoint>
+    {
+        new RespiratoryRateDataPoint { Time = DateTime.MinValue, Rate = 0.0 }
+    },
+                    SleepData = new List<SleepSessionDataPoint>
+    {
+        new SleepSessionDataPoint
+        {
+            StartTime = DateTime.MinValue,
+            EndTime = DateTime.MinValue,
+            Stages = new List<SleepStageDataPoint>
+            {
+                new SleepStageDataPoint
+                {
+                    Type = null, // o string.Empty, si prefieres que sea cadena vacía
+                    StartTime = DateTime.MinValue,
+                    EndTime = DateTime.MinValue
+                }
+            }
+        }
+    }
+                };
+                #endregion healthData
+                var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
+                await firebaseClient
+              .Child("healthData")
+              .Child(request.UserId)
+              .Child("dias")
+              .Child(currentDate)
+              .PutAsync(healthData);
+            }
+            catch (Firebase.Auth.FirebaseAuthException ex)
+            {
+                response.Success = false;
+                response.ErrorMessage = "Error al eliminar el usuario de la autenticación: " + ex.Reason;
+            }
+            catch (Exception ex)
+            {
+                response.Success = false;
+                response.ErrorMessage = "Error al eliminar la información del usuario: " + ex.Message;
+            }
+
             return response;
         }
 

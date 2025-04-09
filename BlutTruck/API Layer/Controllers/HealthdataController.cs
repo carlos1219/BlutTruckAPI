@@ -8,6 +8,8 @@ using static BlutTruck.Application_Layer.Models.PersonalDataModel;
 using Firebase.Database;
 using Firebase.Auth.Repository;
 using Microsoft.AspNetCore.Authorization;
+using BlutTruck.Application_Layer.Models.InputDTO;
+using BlutTruck.Application_Layer.Models.OutputDTO;
 
 namespace Api.Controllers
 {
@@ -52,6 +54,36 @@ namespace Api.Controllers
             }
         }
 
+        [HttpPost("writePrediction")]
+        public async Task<IActionResult> writePrediction([FromBody] PredictionInputDTO request)
+        {
+            if (request == null ||
+                request.Credentials == null ||
+                string.IsNullOrEmpty(request.Credentials.UserId))
+            {
+                return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta el UserId." });
+            }
+
+            try
+            {
+
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
+                {
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                await _healthDataService.writePredictionAsync(request);
+                return Ok(new { Message = "Datos guardados correctamente." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
+            }
+        }
+
         [HttpPost("registerConnection")]
         public async Task<IActionResult> RegisterConnection([FromBody] RegisterConnectionInputDTO request)
         {
@@ -82,6 +114,91 @@ namespace Api.Controllers
             }
         }
 
+        [HttpPost("registerCodeConnection")]
+        public async Task<IActionResult> registerCodeConnection([FromBody] RegisterCodeConnectionInputDTO request)
+        {
+            if (request == null ||
+                string.IsNullOrEmpty(request.CurrentUserId) ||
+                string.IsNullOrEmpty(request.Code))
+            {
+                return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta información necesaria." });
+            }
+
+            try
+            {
+                if (request.IdToken == "string" || request.IdToken == null)
+                {
+                    request.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                RegisterConnectionOutputDTO response = await _healthDataService.RegisterCodeConnectionAsync(request);
+                return Ok(new { Message = "Conexión registrada exitosamente", Result = response });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
+            }
+        }
+
+        [HttpPost("GetCodeConnection")]
+        public async Task<IActionResult> GetCodeConnection([FromBody] DeleteCodeConnectionInputDTO request)
+        {
+            if (request == null ||
+                string.IsNullOrEmpty(request.Code))
+            {
+                return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta información necesaria." });
+            }
+
+            try
+            {
+                if (request.IdToken == "string" || request.IdToken == null)
+                {
+                    request.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                GetConnectionOutputDTO response = await _healthDataService.GetCodeConnectionAsync(request);
+                return Ok(new { Message = "Conexión registrada exitosamente", Result = response });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
+            }
+        }
+
+
+        [HttpPost("deleteCodeConnection")]
+        public async Task<IActionResult> DeleteCodeConnection([FromBody] DeleteCodeConnectionInputDTO request)
+        {
+            if (request == null ||
+                string.IsNullOrEmpty(request.Code))
+            {
+                return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta información necesaria." });
+            }
+
+            try
+            {
+                if (request.IdToken == "string" || request.IdToken == null)
+                {
+                    request.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                DeleteConnectionOutputDTO response = await _healthDataService.DeleteCodeConnectionAsync(request);
+                return Ok(new { Message = "Conexión registrada exitosamente", Result = response });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
+            }
+        }
         // Se espera que el cliente envíe el currentUserId y el token como parte del DTO.
         [HttpPost("getMonitoringUsers")]
         public async Task<IActionResult> GetMonitoringUsers([FromBody] GetMonitoringUsersInputDTO request)
@@ -155,6 +272,7 @@ namespace Api.Controllers
 
             try
             {
+               
                 RegisterUserOutputDTO response = await _healthDataService.RegisterUserAsync(request);
                 return Ok(new { Token = response.Token, Message = "Registro exitoso." });
             }
@@ -178,6 +296,34 @@ namespace Api.Controllers
             try
             {
                 LoginUserOutputDTO response = await _healthDataService.LoginUserAsync(request);
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
+            }
+        }
+
+        [HttpDelete("deletedata")]
+        public async Task<IActionResult> Delete([FromBody] DeleteUserInputDTO request)
+        {
+            if (request == null ||
+                string.IsNullOrEmpty(request.UserId) )
+            {
+                return BadRequest(new { Message = "Correo y contraseña son obligatorios." });
+            }
+
+            try
+            {
+                if (request.Token == "string" || request.Token == null)
+                {
+                    request.Token = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Token))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                DeleteUserOutputDTO response = await _healthDataService.DeleteUserAsync(request);
                 return Ok(response);
             }
             catch (Exception ex)
