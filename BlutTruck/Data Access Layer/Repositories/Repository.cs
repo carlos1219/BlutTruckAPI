@@ -22,6 +22,7 @@ using iTextSharp.text.pdf;
 using BlutTruck.Application_Layer.Models.InputDTO;
 using BlutTruck.Application_Layer.Models.OutputDTO;
 using Newtonsoft.Json.Linq;
+using System.Net;
 
 
 namespace BlutTruck.Data_Access_Layer.Repositories
@@ -70,6 +71,30 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             return decodedToken.Uid;
         }
 
+        public async Task WriteDataWebAsync(WriteDataInputDTO request)
+        {
+            var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            var firebaseClient = new FirebaseClient(
+                _databaseUrl,
+                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+            var dto = new GetConnectionStatusInputDTO
+            {
+                Credentials = new UserCredentials
+                {
+                    UserId = request.Credentials.UserId,
+                    IdToken = request.Credentials.IdToken
+                }
+            };
+
+
+                await firebaseClient
+              .Child("healthData")
+              .Child(request.Credentials.UserId)
+              .Child("dias")
+              .Child(currentDate)
+              .PutAsync(request.HealthData);
+        }
+
         public async Task WriteDataAsync(WriteDataInputDTO request)
         {
             var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
@@ -100,29 +125,172 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
         public async Task writePredictionAsync(PredictionInputDTO request)
         {
+            if (request == null || request.Credentials == null || string.IsNullOrEmpty(request.Credentials.UserId) || string.IsNullOrEmpty(request.Credentials.IdToken))
+            {
+                Console.WriteLine("Error: Datos de entrada inválidos para writePredictionAsync.");
+                return;
+            }
+
             var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
+
+            try
+            {
+                var firebaseClient = new FirebaseClient(
+                    _databaseUrl,
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+
+                var dtoStatusCheck = new GetConnectionStatusInputDTO
+                {
+                    Credentials = new UserCredentials
+                    {
+                        UserId = request.Credentials.UserId,
+                        IdToken = request.Credentials.IdToken
+                    }
+                };
+
+                var predictionDataToSave = new
+                {
+                    Resultado = request.Prediction,
+                    Alertas = request.SpecificAlerts
+                };
+
+                await firebaseClient
+                    .Child("healthData")
+                    .Child(request.Credentials.UserId)
+                    .Child("Prediccion")
+                    .PutAsync(predictionDataToSave);
+
+                Console.WriteLine($"Predicción y alertas guardadas para el usuario: {request.Credentials.UserId}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error al guardar la predicción para el usuario {request.Credentials.UserId}: {ex.Message}");
+            }
+        }
+
+        public async Task writeAdminAsync(AdminInputDTO request)
+        {
+            if (request == null || string.IsNullOrEmpty(request.Credentials.UserId) || string.IsNullOrEmpty(request.Credentials.IdToken))
+            {
+                Console.WriteLine("Error: Datos de entrada inválidos para writePredictionAsync.");
+                return;
+            }
+            try
+            {
+                var firebaseClient = new FirebaseClient(
+                    _databaseUrl,
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+
+   var pathConnection = $"healthData/{request.UserExtractId}/conexiones/{request.Credentials.UserId}/isAdmin";
+                await firebaseClient.Child(pathConnection).PutAsync<string>(request.AdminId);
+
+                // Guardar el valor en el nodo isAdmin del usuario conectado
+                var pathMonitor = $"healthData/{request.Credentials.UserId}/monitores/{request.UserExtractId}/isAdmin";
+                await firebaseClient.Child(pathMonitor).PutAsync<string>(request.AdminId);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error al guardar variable isAdmin: {ex.Message}");
+            }
+        }
+
+
+
+        public async Task<IEnumerable<PredictionDataDTO>> GetListPredictionAsync(UserCredentials credentials)
+        {
+            var predictionList = new List<PredictionDataDTO>();
+
+            try
+            {
+                var monitoringInput = new GetMonitoringUsersInputDTO { Credentials = credentials };
+                var monitoringResponse = await GetMonitoringUsersAsync(monitoringInput);
+
+                if (!monitoringResponse.Success || monitoringResponse.MonitoringUsers == null || !monitoringResponse.MonitoringUsers.Any())
+                {
+                    Console.WriteLine($"No monitoring users found or error occurred for user {credentials.UserId}. Returning empty prediction list.");
+                    return predictionList; 
+                }
+
+                var firebaseClient = new FirebaseClient(
+                    _databaseUrl,
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
+
+                foreach (var monitorUser in monitoringResponse.MonitoringUsers)
+                {
+                    try
+                    {
+                        var monitoredUserId = monitorUser.MonitoringUserId; 
+
+                        var predictionPath = firebaseClient
+                            .Child("healthData")
+                            .Child(monitoredUserId) 
+                            .Child("Prediccion");
+
+                        var namePath = firebaseClient
+                .Child("healthData")
+                .Child(monitorUser.MonitoringUserId)
+                .Child("datos_personales").Child("Name");
+
+                        PredictionDataDTO predictionData = await predictionPath
+                                                              .OnceSingleAsync<PredictionDataDTO>();
+                        string nameData = await namePath
+                                        .OnceSingleAsync<string>();
+                        if (predictionData != null) {
+                            predictionData.Nombre = nameData;
+
+                        }
+
+                        if (predictionData != null)
+                        {
+                            Console.WriteLine($"Prediction data successfully retrieved for monitored user: {monitoredUserId}");
+                            predictionList.Add(predictionData);
+                        }
+                        else
+                        {
+                            Console.WriteLine($"No prediction data found for monitored user: {monitoredUserId}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Generic error fetching prediction for monitored user {monitorUser.MonitoringUserId}: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in GetListPredictionAsync for user {credentials.UserId}: {ex.ToString()}");
+            }
+
+            Console.WriteLine($"Returning {predictionList.Count} predictions for users monitored by {credentials.UserId}.");
+            return predictionList;
+        }
+
+
+        public async Task<PredictionDataDTO> GetPredictionAsync(UserCredentials credentials)
+        {
             var firebaseClient = new FirebaseClient(
                 _databaseUrl,
-                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
-            var dto = new GetConnectionStatusInputDTO
-            {
-                Credentials = new UserCredentials
-                {
-                    UserId = request.Credentials.UserId,
-                    IdToken = request.Credentials.IdToken
-                }
-            };
+                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
 
+            // Construct the path to the user's prediction data
+            var predictionPath = firebaseClient
+                .Child("healthData")
+                .Child(credentials.UserId)
+                .Child("Prediccion");
 
-            GetConnectionStatusOutputDTO status = await GetConnectionStatusAsync(dto);
-            if (1 == status.ConnectionStatus)
+            
+
+            // Attempt to retrieve the data and deserialize it into our DTO
+            PredictionDataDTO predictionData = await predictionPath
+                                         .OnceSingleAsync<PredictionDataDTO>();
+            
+            if (predictionData == null)
             {
-                await firebaseClient
-              .Child("healthData")
-              .Child(request.Credentials.UserId)
-              .Child("Prediccion")
-              .PutAsync(request.Prediction);
+                Console.WriteLine($"No prediction data found for user: {credentials.UserId}");
             }
+
+            Console.WriteLine($"Prediction data successfully retrieved for user: {credentials.UserId}");
+            return predictionData;
         }
 
         public async Task<ReadDataOutputDTO> ReadDataAsync(ReadDataInputDTO request)
@@ -286,6 +454,70 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 return null;
             }
         }
+
+        public async Task<FullDataOutputDTO> GetFullHealthDataAndConnectAsync(FullAndMonitoringInputDTO request)
+        {
+            try
+            {
+                // Inicializar cliente de Firebase con autenticación
+                var firebaseClient = new FirebaseClient(
+                    _databaseUrl,
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+
+                // Obtener datos personales
+                var personalData = await firebaseClient
+                    .Child("healthData")
+                    .Child(request.Credentials.UserId)
+                    .Child("datos_personales")
+                    .OnceSingleAsync<PersonalDataModel>();
+
+                if (personalData == null)
+                {
+                    return null;
+                }
+
+                // Obtener datos de días
+                var daysData = await firebaseClient
+                    .Child("healthData")
+                    .Child(request.Credentials.UserId)
+                    .Child("dias")
+                    .OnceAsync<HealthDataOutputModel>();
+
+                if (daysData == null || daysData.Count == 0)
+                {
+                    return null;
+                }
+
+                // Construir el objeto final utilizando el DTO
+
+
+                string isAdmin = await firebaseClient
+                 .Child("healthData")
+                 .Child(request.Credentials.UserId)
+                 .Child("conexiones")
+                 .Child(request.UserMonitoringID)
+                 .Child("isAdmin")
+                 .OnceSingleAsync<string>();
+
+                var result = new FullDataOutputDTO
+                {
+                    DatosPersonales = personalData,
+                    Dias = daysData.ToDictionary(entry => entry.Key, entry => entry.Object),
+                    CurrentUserIsAdmin = isAdmin
+                };
+
+                return result;
+            }
+            catch (Firebase.Database.FirebaseException ex)
+            {
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return null;
+            }
+        }
+
 
         public async Task<PdfOutputDTO> GeneratePdfAsync(PdfInputDTO request)
         {
@@ -496,10 +728,11 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
                 // Obtener datos de días
                 var daysData = await firebaseClient
-                    .Child("healthData")
-                    .Child(request.Credentials.UserId)
-                    .Child("dias")
-                    .OnceAsync<HealthDataOutputModel>();
+                .Child("healthData")
+                .Child(request.Credentials.UserId)
+                .Child("dias")
+                .OnceAsync<HealthDataOutputModel>();
+
 
                 if (daysData == null || daysData.Count == 0)
                 {
@@ -649,7 +882,8 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 var monitorData = new Dictionary<string, string>
         {
             { "monitoredAt", DateTime.UtcNow.ToString("o") },
-            { "monitoringUserId", request.CurrentUserId }
+            { "monitoringUserId", request.CurrentUserId },
+            { "isAdmin", isAdmin.ToString() }
         };
 
                 // Guardar la conexión en el usuario actual
@@ -763,6 +997,9 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 var path = $"healthData/{request.Credentials.UserId}/conexiones/{request.ConnectedUserId}";
                 await firebaseClient.Child(path).DeleteAsync();
 
+                var pathmonitoring = $"healthData/{request.ConnectedUserId}/monitores/{request.Credentials.UserId}";
+                await firebaseClient.Child(pathmonitoring).DeleteAsync();
+
                 response.Success = true;
                 response.Message = "Conexión eliminada correctamente";
             }
@@ -806,7 +1043,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                     Alcohol = 0,
                     Choresterol = 0,
                     PhotoURL = null,
-                    Name = null,
+                    Name = request.Name,
                     Active = false
                 };
                 #endregion profile
@@ -923,8 +1160,14 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 await firebaseClient
                     .Child("healthData")
                     .Child(request.UserId)
+                    .Child("datos_personales")
                     .DeleteAsync();
                 response.Success = true;
+                await firebaseClient
+                .Child("healthData")
+                .Child(request.UserId)
+                .Child("dias")
+                .DeleteAsync();
 
                 #region profile
                 var profile = new PersonalDataModel
@@ -1029,7 +1272,6 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
             return response;
         }
-
         public async Task<GetMonitoringUsersOutputDTO> GetMonitoringUsersAsync(GetMonitoringUsersInputDTO request)
         {
             var response = new GetMonitoringUsersOutputDTO();
@@ -1040,50 +1282,77 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                     _databaseUrl,
                     new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
 
-                // Obtener lista de usuarios que monitorean al usuario actual
-                var monitors = await firebaseClient
+                // Obtener la colección de objetos bajo "monitores"
+                var monitorsData = await firebaseClient
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("monitores")
-                    .OnceAsync<object>();
+                    .OnceAsync<object>(); // Devuelve IReadOnlyCollection<FirebaseObject<object>>
 
-                if (monitors == null || !monitors.Any())
+                if (monitorsData == null || !monitorsData.Any())
                 {
                     response.Success = true;
                     return response;
                 }
 
-                foreach (var monitor in monitors)
+                foreach (var monitorFirebaseObject in monitorsData)
                 {
-                    var monitoringUserId = monitor.Key;
+                    var monitoringUserId = monitorFirebaseObject.Key;
 
-                    // Obtener el correo electrónico del usuario monitor mediante el método refactorizado
+                    if (string.IsNullOrEmpty(monitoringUserId)) continue;
+
+                    string isAdmin="False";
+                    try
+                    {
+                        var storedData = monitorFirebaseObject.Object as Newtonsoft.Json.Linq.JObject;
+                        MonitorUserModel m = storedData.ToObject<MonitorUserModel>();
+                        if (storedData != null)
+                        {
+                            isAdmin = m.isAdmin; 
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error deserializing monitor data for {monitoringUserId}: {ex.Message}");
+                    }
+
                     var emailResponse = await GetUserEmailByIdAsync(new GetUserEmailByIdInputDTO { UserId = monitoringUserId });
-                    string email = emailResponse.Email;
+                    string email = emailResponse?.Email ?? "No Email"; // Añadir manejo de posible null en emailResponse
 
                     // Obtener datos personales del usuario monitor
-                    var personalData = await firebaseClient
-                        .Child("healthData")
-                        .Child(monitoringUserId)
-                        .Child("datos_personales")
-                        .OnceSingleAsync<PersonalDataModel>();
+                    PersonalDataModel personalData = null;
+                    try
+                    {
+                        personalData = await firebaseClient
+                            .Child("healthData")
+                            .Child(monitoringUserId)
+                            .Child("datos_personales")
+                            .OnceSingleAsync<PersonalDataModel>();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error fetching personal data for {monitoringUserId}: {ex.Message}");
+                    }
+
 
                     var monitoringUser = new MonitorUserModel
                     {
                         MonitoringUserId = monitoringUserId,
                         Name = personalData?.Name ?? "No Name",
                         PhotoURL = personalData?.PhotoURL ?? "No photo",
-                        Email = email
+                        Email = email,
+                        isAdmin = isAdmin 
                     };
 
                     response.MonitoringUsers.Add(monitoringUser);
                 }
+
                 response.Success = true;
             }
             catch (Exception ex)
             {
                 response.Success = false;
-                response.ErrorMessage = $"Error al obtener usuarios que monitorean: {ex.Message}";
+                response.ErrorMessage = $"Error al obtener usuarios que monitorean: {ex.ToString()}";
             }
             return response;
         }

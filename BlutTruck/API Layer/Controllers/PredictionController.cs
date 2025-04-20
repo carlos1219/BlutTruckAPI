@@ -13,9 +13,12 @@ using System.Linq;
 using System;
 using BlutTruck.Application_Layer.Models.InputDTO;
 
+
+
 namespace BlutTruck.API_Layer.Controllers
 {
     public class PredictionRequestDTO
+
     {
         public string UserId { get; set; } = string.Empty;
     }
@@ -26,7 +29,6 @@ namespace BlutTruck.API_Layer.Controllers
     {
         private readonly IPrediccionService _prediccionService;
         private readonly IHealthDataService _healthDataService;
-
         public PrediccionController(IPrediccionService prediccionService, IHealthDataService healthDataService)
         {
             _prediccionService = prediccionService;
@@ -34,187 +36,222 @@ namespace BlutTruck.API_Layer.Controllers
         }
 
         [HttpPost("PredictHealthRisk")]
-        public async Task<IActionResult> PredictHealthRisk([FromBody] PredictionRequestDTO requestDto)
+    public async Task<IActionResult> PredictHealthRisk([FromBody] PredictionRequestDTO requestDto)
+    {
+        try
         {
-            try
+            string userId = requestDto.UserId;
+
+            // --- Autenticación y obtención de datos (como lo tenías) ---
+            var token = await _healthDataService.AuthenticateAndGetTokenAsync();
+            if (string.IsNullOrEmpty(token))
             {
-                string userId = requestDto.UserId;
+                return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+            }
 
-                // Autenticación y verificación del token
-                var token = await _healthDataService.AuthenticateAndGetTokenAsync();
-                if (string.IsNullOrEmpty(token))
+            var uid = await _healthDataService.VerifyUserTokenAsync(token);
+            if (uid == null)
+            {
+                return Unauthorized(new { Message = "El token generado no es válido." });
+            }
+
+            var request = new GetPersonalAndLatestDayDataInputDTO
+            {
+                Credentials = new UserCredentials { UserId = userId, IdToken = token }
+            };
+            var personalAndLatestDayData = await _healthDataService.GetPersonalAndLatestDayDataAsync(request);
+            if (personalAndLatestDayData == null)
+            {
+                // Considera devolver un NotFound si el usuario o los datos no existen
+                return BadRequest(personalAndLatestDayData?.ErrorMessage ?? "No se pudieron obtener los datos del usuario.");
+            }
+
+            PersonalDataModel personalData = personalAndLatestDayData.PersonalData;
+            HealthDataOutputModel latestDayData = personalAndLatestDayData.DiaMasReciente?.Datos; // Null check
+
+            if (latestDayData == null)
+            {
+                return BadRequest("No se encontraron datos de salud recientes para la predicción.");
+            }
+            if (!DateTime.TryParse(personalData.DateOfBirth, out DateTime dateOfBirth))
+            {
+                return BadRequest("Fecha de nacimiento inválida.");
+            }
+
+            // --- Cálculo de edad (como lo tenías) ---
+            int edad = DateTime.Now.Year - dateOfBirth.Year;
+            if (DateTime.Now.Month < dateOfBirth.Month ||
+                (DateTime.Now.Month == dateOfBirth.Month && DateTime.Now.Day < dateOfBirth.Day))
+            {
+                edad--;
+            }
+
+            // --- Mapeo y Predicción (como lo tenías) ---
+            var predictionRequest = MapToPredictionRequest(personalData, latestDayData, edad);
+            var predictionResult = await _prediccionService.PredecirAsync(predictionRequest); 
+
+            // --- Definición de thresholds y obtención de valores (como lo tenías) ---
+            const double thresholdGlucosa = 140;
+            const double thresholdPresionSistolica = 140; 
+            const double thresholdPresionDiastolica = 80;
+            const double thresholdColesterol = 240;
+
+            var latestGlucose = latestDayData.BloodGlucoseData?.LastOrDefault();
+            var latestBloodPressure = latestDayData.BloodPressureData?.LastOrDefault();
+
+            // Usar valores por defecto o manejar la ausencia de datos de forma más robusta si es necesario
+            double bloodGlucose = latestGlucose?.BloodGlucose ?? 0;
+            double systolicPressure = latestBloodPressure?.Systolic ?? 120; // Valor típico si no hay datos
+            double diastolicPressure = latestBloodPressure?.Diastolic ?? 80; // Valor típico si no hay datos
+            double cholesterol = 0;
+            double.TryParse(personalData.Choresterol?.ToString(), out cholesterol); // Intentar convertir de forma segura
+
+            // --- Evaluar parámetros y acumular alertas (como lo tenías) ---
+            var riskAlerts = new List<(string parameter, double value, string message)>();
+
+            if (bloodGlucose > thresholdGlucosa)
+            {
+                riskAlerts.Add(("Glucosa", bloodGlucose, $"Nivel de glucosa elevado: {bloodGlucose} mg/dL."));
+            }
+            if (systolicPressure > thresholdPresionSistolica)
+            {
+                riskAlerts.Add(("Presión sistólica", systolicPressure, $"Presión sistólica elevada: {systolicPressure} mmHg."));
+            }
+            if (diastolicPressure > thresholdPresionDiastolica)
+            {
+                riskAlerts.Add(("Presión diastólica", diastolicPressure, $"Presión diastólica elevada: {diastolicPressure} mmHg."));
+            }
+            if (cholesterol > thresholdColesterol)
+            {
+                riskAlerts.Add(("Colesterol", cholesterol, $"Nivel de colesterol elevado: {cholesterol} mg/dL."));
+            }
+
+            // --- Crear el DTO para guardar la predicción DESPUÉS de calcular las alertas ---
+            var requestdbprediction = new PredictionInputDTO
+            {
+                Credentials = new UserCredentials
                 {
-                    return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
-                }
+                    UserId = userId,
+                    IdToken = token 
+                },
+                Prediction = predictionResult, 
+                SpecificAlerts = riskAlerts.Select(alert => alert.message).ToList()
+            };
 
-                var uid = await _healthDataService.VerifyUserTokenAsync(token);
-                if (uid == null)
-                {
-                    return Unauthorized(new { Message = "El token generado no es válido." });
-                }
+            // --- Guardar la predicción con las alertas ---
+            await _healthDataService.writePredictionAsync(requestdbprediction);
 
-                var request = new GetPersonalAndLatestDayDataInputDTO
-                {
-                    Credentials = new UserCredentials
-                    {
-                        UserId = userId,
-                        IdToken = token
-                    }
-                };
-                var personalAndLatestDayData = await _healthDataService.GetPersonalAndLatestDayDataAsync(request);
-                if (personalAndLatestDayData == null)
-                {
-                    return BadRequest(personalAndLatestDayData.ErrorMessage);
-                }
+            // --- Obtener usuarios monitores y enviar notificaciones (como lo tenías) ---
+            var request2 = new GetMonitoringUsersInputDTO
+            {
+                Credentials = new UserCredentials { UserId = userId, IdToken = token }
+            };
+            var monitoringUsers = await _healthDataService.GetMonitoringUsersAsync(request2);
 
-                PersonalDataModel personalData = personalAndLatestDayData.PersonalData;
-                HealthDataOutputModel latestDayData = personalAndLatestDayData.DiaMasReciente.Datos;
-
-                if (!DateTime.TryParse(personalData.DateOfBirth, out DateTime dateOfBirth))
-                {
-                    return BadRequest("Fecha de nacimiento inválida.");
-                }
-
-                int edad = DateTime.Now.Year - dateOfBirth.Year;
-                if (DateTime.Now.Month < dateOfBirth.Month ||
-                    (DateTime.Now.Month == dateOfBirth.Month && DateTime.Now.Day < dateOfBirth.Day))
-                {
-                    edad--;
-                }
-
-                // Mapear la petición para la predicción global
-                var predictionRequest = MapToPredictionRequest(personalData, latestDayData, edad);
-                var predictionResult = await _prediccionService.PredecirAsync(predictionRequest);
-
-                // Definir thresholds para los parámetros (valores de ejemplo)
-                const double thresholdGlucosa = 140;          // mg/dL
-                const double thresholdPresionSistolica = 110;   // mmHg
-                const double thresholdPresionDiastolica = 90;    // mmHg
-                const double thresholdColesterol = 240;         // mg/dL
-
-                // Obtener las últimas lecturas de glucosa y presión arterial
-                var latestGlucose = latestDayData.BloodGlucoseData?.LastOrDefault();
-                var latestBloodPressure = latestDayData.BloodPressureData?.LastOrDefault();
-
-                double bloodGlucose = latestGlucose?.BloodGlucose ?? 0;
-                double systolicPressure = latestBloodPressure?.Systolic ?? 120;
-                double diastolicPressure = latestBloodPressure?.Diastolic ?? 60;
-                double cholesterol = Convert.ToDouble(personalData.Choresterol ?? 0);
-
-                var requestdbprediction = new PredictionInputDTO
-                {
-                    Credentials = new UserCredentials
-                    {
-                        UserId = userId,
-                        IdToken = token
-                    },
-                    Prediction = predictionResult
-                };
-                await _healthDataService.writePredictionAsync(requestdbprediction);
-
-                // Evaluar cada parámetro y acumular alertas específicas
-                var riskAlerts = new List<(string parameter, double value, string message)>();
-
-                if (bloodGlucose > thresholdGlucosa)
-                {
-                    riskAlerts.Add(("Glucosa", bloodGlucose, $"Nivel de glucosa elevado: {bloodGlucose} mg/dL."));
-                }
-                if (systolicPressure > thresholdPresionSistolica)
-                {
-                    riskAlerts.Add(("Presión sistólica", systolicPressure, $"Presión sistólica elevada: {systolicPressure} mmHg."));
-                }
-                if (diastolicPressure > thresholdPresionDiastolica)
-                {
-                    riskAlerts.Add(("Presión diastólica", diastolicPressure, $"Presión diastólica elevada: {diastolicPressure} mmHg."));
-                }
-                if (cholesterol > thresholdColesterol)
-                {
-                    riskAlerts.Add(("Colesterol", cholesterol, $"Nivel de colesterol elevado: {cholesterol} mg/dL."));
-                }
-
-                var request2 = new GetMonitoringUsersInputDTO
-                {
-                    Credentials = new UserCredentials
-                    {
-                        UserId = userId,
-                        IdToken = token
-                    }
-                };
-                // Obtener la lista de usuarios que deben ser notificados
-                var monitoringUsers = await _healthDataService.GetMonitoringUsersAsync(request2);
-
-                // Se envía la alerta global si el riesgo predicho es alto...
+            if (monitoringUsers != null && monitoringUsers.MonitoringUsers != null) // Verificar nulidad
+            {
                 if (IsHighRisk(predictionResult))
                 {
                     foreach (var monitor in monitoringUsers.MonitoringUsers)
                     {
-                        await SendHighRiskNotificationAsync(monitor.Email, predictionResult);
+                        if (!string.IsNullOrEmpty(monitor?.Email)) // Verificar email
+                        {
+                            await SendHighRiskNotificationAsync(monitor.Email, predictionResult);
+                        }
                     }
                 }
 
-                // ...y se envía alerta específica si hay algún parámetro fuera de rango, sin importar la predicción global
                 if (riskAlerts.Any())
                 {
-                    // Se genera un mensaje consolidado con todos los riesgos detectados
                     string riskDetails = string.Join("<br/>", riskAlerts.Select(r => r.message));
                     foreach (var monitor in monitoringUsers.MonitoringUsers)
                     {
-                        await SendConsolidatedRiskNotificationAsync(monitor.Email, riskDetails);
+                        if (!string.IsNullOrEmpty(monitor?.Email)) // Verificar email
+                        {
+                            await SendConsolidatedRiskNotificationAsync(monitor.Email, riskDetails);
+                        }
                     }
                 }
+            }
 
-                return Ok(new
-                {
-                    Prediccion = predictionResult,
-                    Fecha = personalAndLatestDayData.DiaMasReciente.Fecha,
-                    DatosUtilizados = predictionRequest,
-                    AlertasEspecificas = riskAlerts
-                });
-            }
-            catch (Exception ex)
+
+            // --- Devolver resultado (como lo tenías, puedes incluir las alertas aquí también si quieres) ---
+            return Ok(new
             {
-                return StatusCode(500, new { error = ex.Message });
-            }
+                Prediccion = predictionResult,
+                Fecha = personalAndLatestDayData.DiaMasReciente?.Fecha,
+                DatosUtilizados = predictionRequest,
+                AlertasEspecificasGeneradas = riskAlerts.Select(a => a.message).ToList() // Devuelve los mensajes de alerta en la respuesta API
+                                                                                         // O si usaste la estructura detallada:
+                                                                                         // AlertasEspecificasGeneradas = riskAlerts.Select(a => new { Parametro = a.parameter, Valor = a.value, Mensaje = a.message }).ToList()
+            });
         }
+        catch (Exception ex)
+        {
+            // Loggear el error sería una buena práctica aquí
+            // _logger.LogError(ex, "Error en PredictHealthRisk para UserId {UserId}", requestDto?.UserId);
+            return StatusCode(500, new { error = $"Se produjo un error interno en el servidor: {ex.Message}" });
+        }
+    }
+
+        // ... (MapToPredictionRequest, IsHighRisk, SendHighRiskNotificationAsync, SendConsolidatedRiskNotificationAsync como los tenías) ...
 
         private Dictionary<string, object> MapToPredictionRequest(PersonalDataModel personalData, HealthDataOutputModel latestDayData, int edad)
         {
             var latestBloodPressure = latestDayData.BloodPressureData?.LastOrDefault();
             var latestGlucose = latestDayData.BloodGlucoseData?.LastOrDefault();
+            double.TryParse(personalData?.Choresterol?.ToString(), out double cholesterol);
+            double.TryParse(personalData?.Height?.ToString(), out double height);
+            double.TryParse(personalData?.Weight?.ToString(), out double weight);
+            int gender = 1; // Valor por defecto (ej. masculino)
+            int.TryParse(personalData?.Gender?.ToString(), out gender);
+            double glucosaReal = latestGlucose?.BloodGlucose ?? 0;
+
+            int glucosaCategoria;
+            if (glucosaReal < 100)
+                glucosaCategoria = 1;
+            else if (glucosaReal < 126)
+                glucosaCategoria = 2;
+            else
+                glucosaCategoria = 3;
 
             var predictionRequest = new Dictionary<string, object>
-            {
-                { "edad", edad },
-                { "genero", personalData.Gender ?? 1 },
-                { "altura_cm", latestDayData.Height ?? personalData.Height ?? 0 },
-                { "peso_kg", latestDayData.Weight ?? personalData.Weight ?? 0 },
-                { "presion_sistolica", latestBloodPressure?.Systolic ?? 120 },
-                { "presion_diastolica", latestBloodPressure?.Diastolic ?? 60 },
-                { "colesterol", personalData.Choresterol ?? 0 },
-                { "glucosa", latestGlucose?.BloodGlucose ?? 0 },
-                { "fuma", personalData.Smoke ?? 0 },
-                { "bebe_alcohol", personalData.Alcohol ?? 0 },
-                { "activo", personalData.Active ?? true },
-                { "enfermedad_cardiaca", personalData.HasPredisposition ?? false }
-            };
+    {
+        { "edad", edad },
+        { "genero", gender },
+        { "altura_cm", latestDayData?.Height ?? height },
+        { "peso_kg", latestDayData?.Weight ?? weight },
+        { "presion_sistolica", latestBloodPressure?.Systolic ?? 120 },
+        { "presion_diastolica", latestBloodPressure?.Diastolic ?? 80 },
+        { "colesterol", cholesterol },
+        { "glucosa", glucosaCategoria }, 
+        { "fuma", personalData?.Smoke ?? 0 },
+        { "bebe_alcohol", personalData?.Alcohol ?? 0 },
+        { "activo", personalData?.Active ?? true },
+        { "enfermedad_cardiaca", personalData?.HasPredisposition ?? false }
+    };
 
             return predictionRequest;
         }
 
         private bool IsHighRisk(dynamic predictionResult)
+    {
+        if (predictionResult is string resultString && !string.IsNullOrEmpty(resultString))
         {
-            if (predictionResult != null)
-            {
-                string truncatedResult = predictionResult.Length > 4 ? predictionResult.Substring(0, 3) : predictionResult;
-                if (float.TryParse(truncatedResult, out float result) && result >= 60)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
+            // Intentar extraer un número del inicio del string
+            string numericPart = new string(resultString.TakeWhile(c => char.IsDigit(c) || c == '.' || c == ',').ToArray()).Replace(',', '.');
 
-        private async Task SendHighRiskNotificationAsync(string email, string predictionResult)
+            if (float.TryParse(numericPart, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float result))
+            {
+                // Definir el umbral de riesgo alto
+                const float highRiskThreshold = 60.0f;
+                return result >= highRiskThreshold;
+            }
+        }
+        return false; // No se pudo determinar el riesgo o no es alto
+    }
+
+    private async Task SendHighRiskNotificationAsync(string email, string predictionResult)
         {
             string truncatedResult = predictionResult.Length > 4 ? predictionResult.Substring(0, 4) : predictionResult;
             try

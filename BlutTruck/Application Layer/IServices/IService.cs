@@ -23,10 +23,12 @@ namespace BlutTruck.Application_Layer.IServices
         Task<string> VerifyUserTokenAsync(string idToken);
 
         Task WriteDataAsync(WriteDataInputDTO request);
+        Task WriteDataWebAsync(WriteDataInputDTO request);
         Task writePredictionAsync(PredictionInputDTO request);
         Task<ReadDataOutputDTO> ReadDataAsync(ReadDataInputDTO request);
         Task<HealthDataOutputModel> GetSelectDateHealthDataAsync(SelectDateHealthDataInputDTO request);
         Task<FullDataOutputDTO> GetFullHealthDataAsync(UserCredentials credentials);
+        Task<FullDataOutputDTO> GetFullHealthDataAndConnectAsync(FullAndMonitoringInputDTO request);
         Task<SaveUserProfileOutputDTO> SaveUserProfileAsync(SaveUserProfileInputDTO request);
         Task<PersonalAndLatestDayDataOutputDTO> GetPersonalAndLatestDayDataAsync(GetPersonalAndLatestDayDataInputDTO request);
         Task<GetPersonalDataOutputDTO> GetPersonalDataAsync(GetPersonalDataInputDTO request);
@@ -44,5 +46,8 @@ namespace BlutTruck.Application_Layer.IServices
         Task<DeleteConnectionOutputDTO> DeleteCodeConnectionAsync(DeleteCodeConnectionInputDTO request);
         Task<GetConnectionOutputDTO> GetCodeConnectionAsync(DeleteCodeConnectionInputDTO request);
         Task<DeleteUserOutputDTO> DeleteUserAsync(DeleteUserInputDTO request);
+        Task<PredictionDataDTO> GetPredictionAsync(UserCredentials credentials);
+        Task<IEnumerable<PredictionDataDTO>> GetListPredictionAsync(UserCredentials credentials);
+        Task writeAdminAsync(AdminInputDTO request);
     }
 }

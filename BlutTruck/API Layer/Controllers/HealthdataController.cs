@@ -54,6 +54,36 @@ namespace Api.Controllers
             }
         }
 
+        [HttpPost("writeWeb")]
+        public async Task<IActionResult> WriteDataWeb([FromBody] WriteDataInputDTO request)
+        {
+            if (request == null ||
+                request.Credentials == null ||
+                string.IsNullOrEmpty(request.Credentials.UserId))
+            {
+                return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta el UserId." });
+            }
+
+            try
+            {
+
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
+                {
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                await _healthDataService.WriteDataWebAsync(request);
+                return Ok(new { Message = "Datos guardados correctamente." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
+            }
+        }
+
         [HttpPost("writePrediction")]
         public async Task<IActionResult> writePrediction([FromBody] PredictionInputDTO request)
         {
@@ -76,6 +106,35 @@ namespace Api.Controllers
                     }
                 }
                 await _healthDataService.writePredictionAsync(request);
+                return Ok(new { Message = "Datos guardados correctamente." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
+            }
+        }
+
+        [HttpPost("writeAdmin")]
+        public async Task<IActionResult> writePrediction([FromBody] AdminInputDTO request)
+        {
+            if (request == null ||
+                request.Credentials == null ||
+                string.IsNullOrEmpty(request.Credentials.UserId))
+            {
+                return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta el UserId." });
+            }
+
+            try
+            {
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
+                {
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                await _healthDataService.writeAdminAsync(request);
                 return Ok(new { Message = "Datos guardados correctamente." });
             }
             catch (Exception ex)
@@ -494,7 +553,35 @@ namespace Api.Controllers
                         return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
                     }
                 }
-                var healthData = await _healthDataService.GetFullHealthDataAsync(request);
+                FullDataOutputDTO healthData = await _healthDataService.GetFullHealthDataAsync(request);
+                if (healthData == null)
+                    return NotFound(new { Message = "Datos no encontrados." });
+
+                return Ok(healthData);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Error al obtener los datos: {ex.Message}" });
+            }
+        }
+
+        [HttpPost("fullAndConnection")]
+        public async Task<IActionResult> GetFullHealthDataAndConnectAsync([FromBody] FullAndMonitoringInputDTO request)
+        {
+            if (request == null || string.IsNullOrEmpty(request.Credentials.UserId))
+                return BadRequest(new { Message = "El UserId es requerido." });
+
+            try
+            {
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
+                {
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                FullDataOutputDTO healthData = await _healthDataService.GetFullHealthDataAndConnectAsync(request);
                 if (healthData == null)
                     return NotFound(new { Message = "Datos no encontrados." });
 
@@ -556,6 +643,67 @@ namespace Api.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { Message = $"Error al obtener los datos: {ex.Message}" });
+            }
+        }
+
+        [HttpPost("getprediction")]
+        public async Task<IActionResult> GetPredictionDataAsync([FromBody] UserCredentials request)
+        {
+            if (request == null || string.IsNullOrEmpty(request.UserId))
+                return BadRequest(new { Message = "El UserId es requerido." });
+
+            try
+            {
+                if (request.IdToken == "string" || request.IdToken == null)
+                {
+                    request.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    // Si no se pudo obtener un token, retorna Unauthorized
+                    if (string.IsNullOrEmpty(request.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                var predictionData = await _healthDataService.GetPredictionAsync(request);
+                if (predictionData == null)
+                {
+                    return NotFound(new { Message = $"No se encontraron datos de predicción para el usuario {request.UserId}." });
+                }
+                return Ok(predictionData);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Error al obtener los datos de predicción: {ex.Message}" });
+            }
+        }
+
+
+        [HttpPost("getlistprediction")]
+        public async Task<IActionResult> GetPredictionListDataAsync([FromBody] UserCredentials request)
+        {
+            if (request == null || string.IsNullOrEmpty(request.UserId))
+                return BadRequest(new { Message = "El UserId es requerido." });
+
+            try
+            {
+                if (request.IdToken == "string" || request.IdToken == null)
+                {
+                    request.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    // Si no se pudo obtener un token, retorna Unauthorized
+                    if (string.IsNullOrEmpty(request.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                var predictionData = await _healthDataService.GetListPredictionAsync(request);
+                if (predictionData == null)
+                {
+                    return NotFound(new { Message = $"No se encontraron datos de predicción para el usuario {request.UserId}." });
+                }
+                return Ok(predictionData);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Error al obtener los datos de predicción: {ex.Message}" });
             }
         }
 

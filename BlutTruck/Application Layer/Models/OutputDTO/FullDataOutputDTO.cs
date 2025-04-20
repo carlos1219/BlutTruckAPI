@@ -7,5 +7,7 @@
 
         // Diccionario donde la clave es la fecha y el valor los datos del día
         public Dictionary<string, HealthDataOutputModel> Dias { get; set; }
+
+        public string CurrentUserIsAdmin { get; set; }
     }
 }

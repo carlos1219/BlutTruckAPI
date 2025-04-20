@@ -17,11 +17,13 @@ namespace BlutTruck.Data_Access_Layer.IRepositories
     {
         Task<string> GetTokenAsync();
         Task<string> VerifyIdTokenAsync(string idToken);
+        Task WriteDataWebAsync(WriteDataInputDTO request);
         Task WriteDataAsync(WriteDataInputDTO request);
         Task writePredictionAsync(PredictionInputDTO request);
         Task<ReadDataOutputDTO> ReadDataAsync(ReadDataInputDTO request);
         Task<HealthDataOutputModel> GetSelectDateHealthDataAsync(SelectDateHealthDataInputDTO request);
         Task<FullDataOutputDTO> GetFullHealthDataAsync(UserCredentials credentials);
+        Task<FullDataOutputDTO> GetFullHealthDataAndConnectAsync(FullAndMonitoringInputDTO request);
 
         Task<SaveUserProfileOutputDTO> SaveUserProfileAsync(SaveUserProfileInputDTO request);
         Task<PersonalAndLatestDayDataOutputDTO> GetPersonalAndLatestDayDataAsync(GetPersonalAndLatestDayDataInputDTO request);
@@ -44,6 +46,9 @@ namespace BlutTruck.Data_Access_Layer.IRepositories
         Task<GetConnectionOutputDTO> GetCodeConnectionAsync(DeleteCodeConnectionInputDTO request);
 
         Task<DeleteUserOutputDTO> DeleteUserAsync(DeleteUserInputDTO request);
+        Task<PredictionDataDTO> GetPredictionAsync(UserCredentials credentials);
+        Task<IEnumerable<PredictionDataDTO>> GetListPredictionAsync(UserCredentials credentials);
+        Task writeAdminAsync(AdminInputDTO request);
 
     }
 }

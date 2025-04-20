@@ -42,9 +42,19 @@
             return _healthDataRepository.WriteDataAsync(request);
         }
 
+        public Task WriteDataWebAsync(WriteDataInputDTO request)
+        {
+            return _healthDataRepository.WriteDataWebAsync(request);
+        }
+
         public Task writePredictionAsync(PredictionInputDTO request)
         {
             return _healthDataRepository.writePredictionAsync(request);
+        }
+
+        public Task writeAdminAsync(AdminInputDTO request)
+        {
+            return _healthDataRepository.writeAdminAsync(request);
         }
 
         public Task<ReadDataOutputDTO> ReadDataAsync(ReadDataInputDTO request)
@@ -64,6 +74,11 @@
         public Task<FullDataOutputDTO> GetFullHealthDataAsync(UserCredentials credentials)
         {
             return _healthDataRepository.GetFullHealthDataAsync(credentials);
+        }
+
+        public Task<FullDataOutputDTO> GetFullHealthDataAndConnectAsync(FullAndMonitoringInputDTO request)
+        {
+            return _healthDataRepository.GetFullHealthDataAndConnectAsync(request);
         }
 
         public Task<SaveUserProfileOutputDTO> SaveUserProfileAsync(SaveUserProfileInputDTO request)
@@ -101,7 +116,18 @@
             return _healthDataRepository.RegisterCodeConnectionAsync(request);
 
         }
-       public Task<DeleteConnectionOutputDTO> DeleteCodeConnectionAsync(DeleteCodeConnectionInputDTO request)
+        public Task<PredictionDataDTO> GetPredictionAsync(UserCredentials credentials)
+        {
+            return _healthDataRepository.GetPredictionAsync(credentials);
+
+        }
+
+        public Task<IEnumerable<PredictionDataDTO>> GetListPredictionAsync(UserCredentials credentials)
+        {
+            return _healthDataRepository.GetListPredictionAsync(credentials);
+
+        }
+        public Task<DeleteConnectionOutputDTO> DeleteCodeConnectionAsync(DeleteCodeConnectionInputDTO request)
         {
             return _healthDataRepository.DeleteCodeConnectionAsync(request);
 
