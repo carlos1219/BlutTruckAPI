@@ -33,7 +33,12 @@
             return await _healthDataRepository.VerifyIdTokenAsync(idToken);
         }
 
-        public async  Task<DeleteUserOutputDTO> DeleteUserAsync(DeleteUserInputDTO request)
+        public async  Task<DeleteUserOutputDTO> DeleteDataUserAsync(DeleteUserInputDTO request)
+        {
+            return await _healthDataRepository.DeleteDataUserAsync(request);
+        }
+
+        public async Task<DeleteUserOutputDTO> DeleteUserAsync(DeleteUserInputDTO request)
         {
             return await _healthDataRepository.DeleteUserAsync(request);
         }
@@ -152,6 +157,11 @@
             return _healthDataRepository.RegisterUserAsync(request);
         }
 
+        public Task<RegisterUserOutputDTO> RegisterGoogleUserAsync(RegisterGoogleUserInputDTO request)
+        {
+            return _healthDataRepository.RegisterGoogleUserAsync(request);
+
+        }
         public Task<LoginUserOutputDTO> LoginUserAsync(LoginUserInputDTO request)
         {
             return _healthDataRepository.LoginUserAsync(request);

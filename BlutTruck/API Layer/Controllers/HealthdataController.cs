@@ -341,6 +341,28 @@ namespace Api.Controllers
             }
         }
 
+        [HttpPost("googleRegister")]
+        public async Task<IActionResult> GoogleRegister([FromBody] RegisterGoogleUserInputDTO request)
+        {
+            if (request == null ||
+                string.IsNullOrEmpty(request.Email) ||
+                string.IsNullOrEmpty(request.Name))
+            {
+                return BadRequest(new { Message = "Todos los campos son obligatorios." });
+            }
+
+            try
+            {
+
+                RegisterUserOutputDTO response = await _healthDataService.RegisterGoogleUserAsync(request);
+                return Ok(new { Token = response.Token, Message = "Registro exitoso." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = ex.Message });
+            }
+        }
+
         [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginUserInputDTO request)
@@ -367,7 +389,35 @@ namespace Api.Controllers
         public async Task<IActionResult> Delete([FromBody] DeleteUserInputDTO request)
         {
             if (request == null ||
-                string.IsNullOrEmpty(request.UserId) )
+                string.IsNullOrEmpty(request.UserId))
+            {
+                return BadRequest(new { Message = "Correo y contraseña son obligatorios." });
+            }
+
+            try
+            {
+                if (request.Token == "string" || request.Token == null)
+                {
+                    request.Token = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Token))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                DeleteUserOutputDTO response = await _healthDataService.DeleteDataUserAsync(request);
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
+            }
+        }
+
+        [HttpDelete("deleteuser")]
+        public async Task<IActionResult> Deleteuser([FromBody] DeleteUserInputDTO request)
+        {
+            if (request == null ||
+                string.IsNullOrEmpty(request.UserId))
             {
                 return BadRequest(new { Message = "Correo y contraseña son obligatorios." });
             }

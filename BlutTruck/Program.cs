@@ -19,10 +19,7 @@ builder.Services.AddControllers();
 // This ensures the IHttpClientFactory is available for DI
 builder.Services.AddHttpClient();
 
-builder.WebHost.ConfigureKestrel(serverOptions =>
-{ 
-serverOptions.ListenAnyIP(8080);
-});
+
 // **3. Register application services**
 builder.Services.AddScoped<IHealthDataService, HealthDataService>();
 builder.Services.AddScoped<IHealthDataRepository, HealthDataRepository>();
@@ -95,8 +92,6 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Enable HTTPS redirection
-app.UseHttpsRedirection();
 
 // Use the configured CORS policy
 app.UseCors("AllowAllOrigins");

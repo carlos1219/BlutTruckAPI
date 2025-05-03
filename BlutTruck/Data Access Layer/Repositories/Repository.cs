@@ -23,6 +23,7 @@ using BlutTruck.Application_Layer.Models.InputDTO;
 using BlutTruck.Application_Layer.Models.OutputDTO;
 using Newtonsoft.Json.Linq;
 using System.Net;
+using static Google.Rpc.Context.AttributeContext.Types;
 
 
 namespace BlutTruck.Data_Access_Layer.Repositories
@@ -195,27 +196,82 @@ namespace BlutTruck.Data_Access_Layer.Repositories
         }
 
 
-
         public async Task<IEnumerable<PredictionDataDTO>> GetListPredictionAsync(UserCredentials credentials)
         {
             var predictionList = new List<PredictionDataDTO>();
 
             try
             {
-                var monitoringInput = new GetMonitoringUsersInputDTO { Credentials = credentials };
-                var monitoringResponse = await GetMonitoringUsersAsync(monitoringInput);
+                var response = new GetMonitoringUsersOutputDTO();
+                response.MonitoringUsers = new List<MonitorUserModel>();
+                var firebaseClient = new FirebaseClient(
+                 _databaseUrl,
+                 new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
 
-                if (!monitoringResponse.Success || monitoringResponse.MonitoringUsers == null || !monitoringResponse.MonitoringUsers.Any())
+                var monitoringResponse = await firebaseClient
+                    .Child("healthData")
+                    .Child(credentials.UserId)
+                    .Child("conexiones")
+                    .OnceAsync<object>();
+
+                if (monitoringResponse == null || !monitoringResponse.Any())
                 {
-                    Console.WriteLine($"No monitoring users found or error occurred for user {credentials.UserId}. Returning empty prediction list.");
-                    return predictionList; 
+                    response.Success = true;
                 }
 
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
+                foreach (var monitorFirebaseObject in monitoringResponse)
+                {
+                    var monitoringUserId = monitorFirebaseObject.Key;
 
-                foreach (var monitorUser in monitoringResponse.MonitoringUsers)
+                    if (string.IsNullOrEmpty(monitoringUserId)) continue;
+
+                    string isAdmin = "False";
+                    try
+                    {
+                        var storedData = monitorFirebaseObject.Object as Newtonsoft.Json.Linq.JObject;
+                        MonitorUserModel m = storedData.ToObject<MonitorUserModel>();
+                        if (storedData != null)
+                        {
+                            isAdmin = m.isAdmin;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error deserializing monitor data for {monitoringUserId}: {ex.Message}");
+                    }
+
+                    PersonalDataModel personalData = null;
+                    try
+                    {
+                        personalData = await firebaseClient
+                            .Child("healthData")
+                            .Child(monitoringUserId)
+                            .Child("datos_personales")
+                            .OnceSingleAsync<PersonalDataModel>();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error fetching personal data for {monitoringUserId}: {ex.Message}");
+                    }
+
+
+                    var monitoringUser = new MonitorUserModel
+                    {
+                        MonitoringUserId = monitoringUserId,
+                        Name = personalData?.Name ?? "No Name",
+                    };
+
+                    response.MonitoringUsers.Add(monitoringUser);
+                }
+
+                response.Success = true;
+                if (!response.Success || response.MonitoringUsers == null || !response.MonitoringUsers.Any())
+                {
+                    Console.WriteLine($"No monitoring users found or error occurred for user {credentials.UserId}. Returning empty prediction list.");
+                    return predictionList;
+                }
+             
+                foreach (var monitorUser in response.MonitoringUsers)
                 {
                     try
                     {
@@ -494,7 +550,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 string isAdmin = await firebaseClient
                  .Child("healthData")
                  .Child(request.Credentials.UserId)
-                 .Child("conexiones")
+                 .Child("monitores")
                  .Child(request.UserMonitoringID)
                  .Child("isAdmin")
                  .OnceSingleAsync<string>();
@@ -542,8 +598,10 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 // Define la fuente para el encabezado
                 var headerFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 16);
 
-                // Cargar la imagen (ajusta la ruta según corresponda)
-                Image logo = Image.GetInstance("C:\\Users\\Carlos\\Desktop\\C#\\BlutTruck - copia - copia\\BlutTruck\\Recursos\\logo.png");
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                // Crea la ruta a la imagen DENTRO de la carpeta del programa
+                string rutaImagen = Path.Combine(baseDir, "Recursos", "logo.png");
+                Image logo = Image.GetInstance(rutaImagen);
                 logo.ScaleAbsolute(50, 50);
                 // Se omite asignar la alineación en la imagen, ya que se define en la celda
 
@@ -1034,6 +1092,118 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                     {
                         ConnectionStatus = 0
                     },
+                    DateOfBirth = null, 
+                    HasPredisposition = false,
+                    Height = 0,
+                    Weight = 0,
+                    Gender = 0,
+                    Smoke = 0,
+                    Alcohol = 0,
+                    Choresterol = 0,
+                    PhotoURL = null,
+                    Name = request.Name,
+                    Active = false
+                };
+                #endregion profile
+
+                var profileRef = firebaseClient
+                   .Child("healthData")
+                   .Child(userId)
+                   .Child("datos_personales");
+                await profileRef.PutAsync(profile);
+                #region healthData
+                var healthData = new HealthDataInputModel
+                {
+                    UserId = null,
+                    Steps = 0,
+                    ActiveCalories = 0.0,
+                    // Puedes inicializar la lista con un valor 0 o dejarla vacía según tus necesidades
+                    HeartRates = new List<int?> { 0 },
+                    // Para las colecciones de data, se puede crear un único objeto con valores por defecto
+                    HeartRateData = new List<HeartRateDataPoint>
+    {
+        new HeartRateDataPoint { Time = DateTime.MinValue, BPM = 0 }
+    },
+                    RestingHeartRate = 0.0,
+                    Weight = 0.0,
+                    Height = 0.0,
+                    BloodPressureData = new List<BloodPressureDataPoint>
+    {
+        new BloodPressureDataPoint { Time = DateTime.MinValue, Systolic = 0.0, Diastolic = 0.0 }
+    },
+                    OxygenSaturationData = new List<OxygenSaturationDataPoint>
+    {
+        new OxygenSaturationDataPoint { Time = DateTime.MinValue, Percentage = 0.0 }
+    },
+                    BloodGlucoseData = new List<BloodGlucoseDataPoint>
+    {
+        new BloodGlucoseDataPoint { Time = DateTime.MinValue, BloodGlucose = 0.0 }
+    },
+                    BodyTemperature = 0.0,
+                    TemperatureData = new List<TemperatureDataPoint>
+    {
+        new TemperatureDataPoint { Time = DateTime.MinValue, Temperature = 0.0 }
+    },
+                    RespiratoryRateData = new List<RespiratoryRateDataPoint>
+    {
+        new RespiratoryRateDataPoint { Time = DateTime.MinValue, Rate = 0.0 }
+    },
+                    SleepData = new List<SleepSessionDataPoint>
+    {
+        new SleepSessionDataPoint
+        {
+            StartTime = DateTime.MinValue,
+            EndTime = DateTime.MinValue,
+            Stages = new List<SleepStageDataPoint>
+            {
+                new SleepStageDataPoint
+                {
+                    Type = null, // o string.Empty, si prefieres que sea cadena vacía
+                    StartTime = DateTime.MinValue,
+                    EndTime = DateTime.MinValue
+                }
+            }
+        }
+    }
+                };
+                #endregion healthData
+                var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
+                await firebaseClient
+              .Child("healthData")
+              .Child(userId)
+              .Child("dias")
+              .Child(currentDate)
+              .PutAsync(healthData);
+
+            }
+            catch (Firebase.Auth.FirebaseAuthException ex)
+            {
+                response.Success = false;
+                response.ErrorMessage = "Error al registrar el usuario: " + ex.Reason;
+            }
+            return response;
+        }
+
+        public async Task<RegisterUserOutputDTO> RegisterGoogleUserAsync(RegisterGoogleUserInputDTO request)
+        {
+            var response = new RegisterUserOutputDTO();
+            try
+            {
+                response.Success = true;
+                var userId = request.UserId;
+
+
+                string token = await GetTokenAsync();
+                var firebaseClient = new FirebaseClient(
+                  _databaseUrl,
+                  new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(token) });
+                #region profile
+                var profile = new PersonalDataModel
+                {
+                    Conexion = new PersonalDataModel.ConnectionModel
+                    {
+                        ConnectionStatus = 0
+                    },
                     DateOfBirth = null, // Puedes asignar una fecha en formato string o dejarla en null
                     HasPredisposition = false,
                     Height = 0,
@@ -1146,7 +1316,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             return response;
         }
 
-        public async Task<DeleteUserOutputDTO> DeleteUserAsync(DeleteUserInputDTO request)
+        public async Task<DeleteUserOutputDTO> DeleteDataUserAsync(DeleteUserInputDTO request)
         {
             var response = new DeleteUserOutputDTO();
             try
@@ -1167,6 +1337,12 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 .Child("healthData")
                 .Child(request.UserId)
                 .Child("dias")
+                .DeleteAsync();
+                response.Success = true;
+                await firebaseClient
+                .Child("healthData")
+                .Child(request.UserId)
+                .Child("Prediccion")
                 .DeleteAsync();
 
                 #region profile
@@ -1272,6 +1448,90 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
             return response;
         }
+
+        public async Task<DeleteUserOutputDTO> DeleteUserAsync(DeleteUserInputDTO request)
+        {
+            var response = new DeleteUserOutputDTO();
+            try
+            {
+                // --- Inicialización del Firebase Admin SDK (si no está ya inicializado globalmente) ---
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                // Crea la ruta a la credencial DENTRO de la carpeta del programa
+                string rutajson = Path.Combine(baseDir, "Recursos", "proyectocsharp-tfg-firebase-adminsdk-fbsvc-a393e8de19.json"); // Asegúrate que el nombre/ruta es correcto
+                if (FirebaseApp.DefaultInstance == null)
+                {
+                    FirebaseApp.Create(new AppOptions()
+                    {
+                        Credential = GoogleCredential.FromFile(rutajson),
+                    });
+                }
+                var firebaseClient = new FirebaseClient(
+                    _databaseUrl,
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Token) }
+                );
+
+                var userCredentials = new UserCredentials { UserId = request.UserId, IdToken = request.Token };
+                var getMonitoringInput = new GetMonitoringUsersInputDTO { Credentials = userCredentials };
+                var monitoringUsersResponse = await GetMonitoringUsersAsync(getMonitoringInput);
+                List<MonitorUserModel> monitors = new List<MonitorUserModel>();
+
+                if (monitoringUsersResponse.Success && monitoringUsersResponse.MonitoringUsers != null)
+                {
+                    monitors = monitoringUsersResponse.MonitoringUsers;
+                }
+
+                var getConnectedInput = new ConnectedUsersInputDTO { Credentials = userCredentials };
+                List<ConnectedUserModel> connectedUsers = new List<ConnectedUserModel>();
+                connectedUsers = await GetConnectedUsersAsync(getConnectedInput) ?? new List<ConnectedUserModel>();
+
+
+                foreach (var monitor in monitors)
+                {
+                        await firebaseClient
+                            .Child("healthData")
+                            .Child(monitor.MonitoringUserId)
+                            .Child("conexiones")
+                            .Child(request.UserId)
+                            .DeleteAsync();
+                }
+
+                foreach (var connectedUser in connectedUsers)
+                {
+                        await firebaseClient
+                            .Child("healthData")
+                            .Child(connectedUser.ConnectedUserId) 
+                            .Child("monitores")
+                            .Child(request.UserId) 
+                            .DeleteAsync();
+                }
+
+                await FirebaseAuth.DefaultInstance.DeleteUserAsync(request.UserId);
+
+                await firebaseClient
+                    .Child("healthData")
+                    .Child(request.UserId)
+                    .DeleteAsync();
+
+                response.Success = true;
+            }
+            catch (FirebaseAdmin.Auth.FirebaseAuthException ex) // Error específico de Auth
+            {
+                response.Success = false;
+                response.ErrorMessage = $"Error al eliminar el usuario de la autenticación ({ex.AuthErrorCode}): {ex.Message}";
+            }
+            catch (Firebase.Database.FirebaseException ex) // Error específico de Database
+            {
+                response.Success = false;
+                response.ErrorMessage = "Error al interactuar con la base de datos durante la eliminación: " + ex.Message;
+            }
+            catch (Exception ex) // Otros errores generales
+            {
+                response.Success = false;
+                response.ErrorMessage = "Error general durante la eliminación del usuario: " + ex.ToString(); // Usar ToString para más detalle si es necesario
+            }
+
+            return response;
+        }
         public async Task<GetMonitoringUsersOutputDTO> GetMonitoringUsersAsync(GetMonitoringUsersInputDTO request)
         {
             var response = new GetMonitoringUsersOutputDTO();
@@ -1282,12 +1542,11 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                     _databaseUrl,
                     new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
 
-                // Obtener la colección de objetos bajo "monitores"
                 var monitorsData = await firebaseClient
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("monitores")
-                    .OnceAsync<object>(); // Devuelve IReadOnlyCollection<FirebaseObject<object>>
+                    .OnceAsync<object>(); 
 
                 if (monitorsData == null || !monitorsData.Any())
                 {

@@ -10,18 +10,20 @@
 
         public List<HeartRateDataPoint>? HeartRateData { get; set; } = new List<HeartRateDataPoint>();
 
-        public double? AvgHeartRate => HeartRates?.Where(x => x.HasValue).Select(x => x.Value).Any() == true
-            ? HeartRates.Where(x => x.HasValue).Select(x => x.Value).Average()
+
+        public double? AvgHeartRate => HeartRateData?.Select(dp => dp.BPM).Any() == true
+            ? HeartRateData.Select(dp => dp.BPM).Average()
             : null;
 
-        public double? MinHeartRate => HeartRates?.Where(x => x.HasValue).Select(x => x.Value).Any() == true
-            ? HeartRates.Where(x => x.HasValue).Select(x => x.Value).Min()
+        public double? MinHeartRate => HeartRateData?.Select(dp => dp.BPM).Any() == true
+            ? (double?)HeartRateData.Select(dp => dp.BPM).Min()
             : null;
 
-        public double? MaxHeartRate => HeartRates?.Where(x => x.HasValue).Select(x => x.Value).Any() == true
-            ? HeartRates.Where(x => x.HasValue).Select(x => x.Value).Max()
+        public double? MaxHeartRate => HeartRateData?.Select(dp => dp.BPM).Any() == true
+            ? (double?)HeartRateData.Select(dp => dp.BPM).Max()
             : null;
 
+      
         public double? RestingHeartRate { get; set; }
         public double? Weight { get; set; }
         public double? Height { get; set; }

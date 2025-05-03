@@ -36,6 +36,7 @@ namespace BlutTruck.Data_Access_Layer.IRepositories
 
         Task<List<ConnectedUserModel>> GetConnectedUsersAsync(ConnectedUsersInputDTO request);
         Task<RegisterUserOutputDTO> RegisterUserAsync(RegisterUserInputDTO request);
+        Task<RegisterUserOutputDTO> RegisterGoogleUserAsync(RegisterGoogleUserInputDTO request);
         Task<LoginUserOutputDTO> LoginUserAsync(LoginUserInputDTO request);
         Task<GetMonitoringUsersOutputDTO> GetMonitoringUsersAsync(GetMonitoringUsersInputDTO request);
 
@@ -45,6 +46,7 @@ namespace BlutTruck.Data_Access_Layer.IRepositories
         Task<DeleteConnectionOutputDTO> DeleteCodeConnectionAsync(DeleteCodeConnectionInputDTO request);
         Task<GetConnectionOutputDTO> GetCodeConnectionAsync(DeleteCodeConnectionInputDTO request);
 
+        Task<DeleteUserOutputDTO> DeleteDataUserAsync(DeleteUserInputDTO request);
         Task<DeleteUserOutputDTO> DeleteUserAsync(DeleteUserInputDTO request);
         Task<PredictionDataDTO> GetPredictionAsync(UserCredentials credentials);
         Task<IEnumerable<PredictionDataDTO>> GetListPredictionAsync(UserCredentials credentials);
