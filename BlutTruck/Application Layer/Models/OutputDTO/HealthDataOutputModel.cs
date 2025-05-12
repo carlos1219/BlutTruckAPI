@@ -13,26 +13,43 @@
         {
             get
             {
-                var validRates = HeartRates?.Where(h => h.HasValue).Select(h => h.Value);
-                return validRates?.Any() == true ? validRates.Average() : null;
+                var validBpmValues = HeartRateData?
+                    .Where(hrdp => hrdp != null) // Filtra HeartRateDataPoint nulos (si es posible)
+                    .Select(hrdp => hrdp.BPM);    // Asume que 'BPM' en HeartRateDataPoint es int
+
+                // .Average() sobre una colección de int devuelve double, así que está bien.
+                return validBpmValues?.Any() == true ? validBpmValues.Average() : null;
             }
         }
+
+        // CORREGIDO: Cambiado de int? a double?
         public double? MinHeartRate
         {
             get
             {
-                var validRates = HeartRates?.Where(h => h.HasValue).Select(h => h.Value);
-                return validRates?.Any() == true ? validRates.Min() : null;
+                var validBpmValues = HeartRateData?
+                    .Where(hrdp => hrdp != null)
+                    .Select(hrdp => hrdp.BPM);
+
+                // .Min() sobre una colección de int devuelve int. Se hace cast a double?.
+                return validBpmValues?.Any() == true ? (double?)validBpmValues.Min() : null;
             }
         }
+
+        // CORREGIDO: Cambiado de int? a double?
         public double? MaxHeartRate
         {
             get
             {
-                var validRates = HeartRates?.Where(h => h.HasValue).Select(h => h.Value);
-                return validRates?.Any() == true ? validRates.Max() : null;
+                var validBpmValues = HeartRateData?
+                    .Where(hrdp => hrdp != null)
+                    .Select(hrdp => hrdp.BPM);
+
+                // .Max() sobre una colección de int devuelve int. Se hace cast a double?.
+                return validBpmValues?.Any() == true ? (double?)validBpmValues.Max() : null;
             }
         }
+
 
         public double? RestingHeartRate { get; set; }
         public double? Weight { get; set; }

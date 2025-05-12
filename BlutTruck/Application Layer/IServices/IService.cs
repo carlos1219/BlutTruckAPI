@@ -51,5 +51,6 @@ namespace BlutTruck.Application_Layer.IServices
         Task<PredictionDataDTO> GetPredictionAsync(UserCredentials credentials);
         Task<IEnumerable<PredictionDataDTO>> GetListPredictionAsync(UserCredentials credentials);
         Task writeAdminAsync(AdminInputDTO request);
+        Task<PdfOutputDTO> GeneratePdfByDataTypeAsync(PdfInputByDataTypeDTO request);
     }
 }

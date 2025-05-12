@@ -11,19 +11,49 @@
         public List<HeartRateDataPoint>? HeartRateData { get; set; } = new List<HeartRateDataPoint>();
 
 
-        public double? AvgHeartRate => HeartRateData?.Select(dp => dp.BPM).Any() == true
-            ? HeartRateData.Select(dp => dp.BPM).Average()
-            : null;
+        public double? AvgHeartRate
+        {
+            get
+            {
+                // Usar hrdp.BPM (o el nombre correcto de la propiedad en HeartRateDataPoint)
+                var validBpmValues = HeartRateData?
+                    .Where(hrdp => hrdp != null) // Filtra HeartRateDataPoint nulos (si es posible que existan)
+                    .Select(hrdp => hrdp.BPM);    // Asume que 'BPM' es int
 
-        public double? MinHeartRate => HeartRateData?.Select(dp => dp.BPM).Any() == true
-            ? (double?)HeartRateData.Select(dp => dp.BPM).Min()
-            : null;
+                // Average sobre una colección de int devuelve double.
+                return validBpmValues?.Any() == true ? validBpmValues.Average() : null;
+            }
+        }
 
-        public double? MaxHeartRate => HeartRateData?.Select(dp => dp.BPM).Any() == true
-            ? (double?)HeartRateData.Select(dp => dp.BPM).Max()
-            : null;
+        // Cambiado a double? para coincidir con el tipo de dato en Firebase JSON
+        public double? MinHeartRate
+        {
+            get
+            {
+                var validBpmValues = HeartRateData?
+                    .Where(hrdp => hrdp != null)
+                    .Select(hrdp => hrdp.BPM);
 
-      
+                // Min() sobre una colección de int devuelve int. Hacemos cast a double?.
+                return validBpmValues?.Any() == true ? (double?)validBpmValues.Min() : null;
+            }
+        }
+
+        // Cambiado a double? para coincidir con el tipo de dato en Firebase JSON
+        public double? MaxHeartRate
+        {
+            get
+            {
+                var validBpmValues = HeartRateData?
+                    .Where(hrdp => hrdp != null)
+                    .Select(hrdp => hrdp.BPM);
+
+                // Max() sobre una colección de int devuelve int. Hacemos cast a double?.
+                return validBpmValues?.Any() == true ? (double?)validBpmValues.Max() : null;
+            }
+        }
+
+
         public double? RestingHeartRate { get; set; }
         public double? Weight { get; set; }
         public double? Height { get; set; }

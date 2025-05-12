@@ -539,7 +539,7 @@ namespace Api.Controllers
 
             try
             {
-                if(request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
                 {
                     request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
                     if (string.IsNullOrEmpty(request.Credentials.IdToken))
@@ -837,8 +837,43 @@ namespace Api.Controllers
                 return StatusCode(500, new { Message = $"Error al obtener el estado de conexión: {ex.Message}" });
             }
         }
-    }
 
+        [HttpPost("get-pdf-by-type")]
+        public async Task<IActionResult> DownloadPdfByDataTypeAsync([FromBody] PdfInputByDataTypeDTO request)
+        {
+            if (request == null || request.Credentials == null || string.IsNullOrEmpty(request.Credentials.UserId))
+            {
+                return BadRequest(new { Message = "El UserId en las credenciales es requerido." });
+            }
+
+            try
+            {
+                if (string.IsNullOrEmpty(request.Credentials.IdToken) || request.Credentials.IdToken == "string")
+                {
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+
+                var pdfOutput = await _healthDataService.GeneratePdfByDataTypeAsync(request);
+
+                if (pdfOutput == null || pdfOutput.PdfBytes == null || pdfOutput.PdfBytes.Length == 0)
+                {
+                    return NotFound(new { Message = $"No se pudo generar el PDF para el tipo de dato '{request.DataType}' o el contenido está vacío." });
+                }
+
+                // Devolver el archivo PDF
+                string fileName = $"datosSalud_{request.Credentials.UserId}_{request.DataType}.pdf";
+                return File(pdfOutput.PdfBytes, "application/pdf", fileName);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Error al generar el PDF para el tipo de dato '{request.DataType}': {ex.Message}" });
+            }
+        }
+    }
 }
 
 

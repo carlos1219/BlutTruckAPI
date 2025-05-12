@@ -24,6 +24,7 @@ using BlutTruck.Application_Layer.Models.OutputDTO;
 using Newtonsoft.Json.Linq;
 using System.Net;
 using static Google.Rpc.Context.AttributeContext.Types;
+using BlutTruck.Application_Layer.Enums;
 
 
 namespace BlutTruck.Data_Access_Layer.Repositories
@@ -575,7 +576,275 @@ namespace BlutTruck.Data_Access_Layer.Repositories
         }
 
 
-        public async Task<PdfOutputDTO> GeneratePdfAsync(PdfInputDTO request)
+        public async Task<PdfOutputDTO> GeneratePdfByDataTypeAsync(PdfInputByDataTypeDTO request)
+        {
+            FullDataOutputDTO fullData = await this.GetFullHealthDataAsync(request.Credentials);
+
+            if (fullData == null || fullData.DatosPersonales == null)
+            {
+                throw new Exception("No se encontraron datos para el usuario especificado.");
+            }
+
+            using (var ms = new MemoryStream())
+            {
+                Document document = new Document(PageSize.A4, 50, 50, 25, 25);
+                PdfWriter writer = PdfWriter.GetInstance(document, ms);
+                document.Open();
+
+                var headerFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 16);
+                var subHeaderFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 14);
+                var normalFont = FontFactory.GetFont(FontFactory.HELVETICA, 10);
+                var smallBoldFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 10);
+                var listItemFont = FontFactory.GetFont(FontFactory.HELVETICA, 9);
+
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                string rutaImagen = Path.Combine(baseDir, "Recursos", "logo.png");
+                if (System.IO.File.Exists(rutaImagen))
+                {
+                    Image logo = Image.GetInstance(rutaImagen);
+                    logo.ScaleAbsolute(50, 50);
+                    PdfPTable headerTable = new PdfPTable(2) { WidthPercentage = 50, HorizontalAlignment = Element.ALIGN_LEFT };
+                    headerTable.SetWidths(new float[] { 1, 3 });
+                    headerTable.AddCell(new PdfPCell(logo) { Border = Rectangle.NO_BORDER, HorizontalAlignment = Element.ALIGN_CENTER, VerticalAlignment = Element.ALIGN_MIDDLE, Padding = 0 });
+                    headerTable.AddCell(new PdfPCell(new Paragraph("BlutTruck", headerFont)) { Border = Rectangle.NO_BORDER, HorizontalAlignment = Element.ALIGN_LEFT, VerticalAlignment = Element.ALIGN_MIDDLE, PaddingLeft = 5, Padding = 0 });
+                    document.Add(headerTable);
+                }
+                else
+                {
+                    Paragraph appTitle = new Paragraph("BlutTruck", headerFont) { Alignment = Element.ALIGN_CENTER };
+                    document.Add(appTitle);
+                    document.Add(new Paragraph("Advertencia: Logo no encontrado en " + rutaImagen, FontFactory.GetFont(FontFactory.HELVETICA, 8, BaseColor.RED)));
+                }
+                document.Add(new Paragraph(" "));
+
+                document.Add(new Paragraph("Datos Personales", headerFont));
+                document.Add(new Paragraph($"Nombre: {fullData.DatosPersonales.Name}", normalFont));
+                // Formatear fecha de nacimiento si es DateTime
+                // document.Add(new Paragraph($"Fecha de nacimiento: {fullData.DatosPersonales.DateOfBirth:dd/MM/yyyy}", normalFont));
+                document.Add(new Paragraph($"Fecha de nacimiento: {fullData.DatosPersonales.DateOfBirth}", normalFont)); // Mantener como string por ahora
+                document.Add(new Paragraph($"Altura: {fullData.DatosPersonales.Height}", normalFont));
+                document.Add(new Paragraph($"Peso: {fullData.DatosPersonales.Weight}", normalFont));
+                document.Add(new Paragraph($"Género: {fullData.DatosPersonales.Gender}", normalFont));
+                document.Add(new Paragraph(" "));
+
+                string dataTypeFriendlyName = GetDataTypeFriendlyName(request.DataType);
+                document.Add(new Paragraph($"Historial de {dataTypeFriendlyName}", headerFont));
+                document.Add(new Paragraph(" "));
+
+                if (fullData.Dias == null || !fullData.Dias.Any())
+                {
+                    document.Add(new Paragraph($"No hay datos diarios disponibles para {dataTypeFriendlyName}.", normalFont));
+                }
+                else
+                {
+                    bool anyDataFoundForTypeAcrossAllDays = false;
+                    foreach (var diaEntry in fullData.Dias.OrderBy(d => d.Key)) // Ordenar por fecha (string YYYY-MM-DD)
+                    {
+                        string fechaString = diaEntry.Key;
+                        // Intentar parsear la fecha para mostrarla en formato local, si es necesario.
+                        // DateTime fechaDT = DateTime.ParseExact(fechaString, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+                        // Paragraph dateParagraph = new Paragraph($"Fecha: {fechaDT:dd/MM/yyyy}", subHeaderFont);
+                        Paragraph dateParagraph = new Paragraph($"Fecha: {fechaString}", subHeaderFont); // O mantener YYYY-MM-DD
+
+                        HealthDataOutputModel diaData = diaEntry.Value;
+                        bool dataFoundForDay = false;
+                        List<IElement> elementsForDay = new List<IElement>();
+
+                        switch (request.DataType)
+                        {
+                            case HealthDataType.Steps:
+                                if (diaData.Steps.HasValue)
+                                {
+                                    elementsForDay.Add(new Paragraph($"Pasos: {diaData.Steps.Value}", normalFont));
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                            case HealthDataType.HeartRate:
+                                if (diaData.HeartRateData != null && diaData.HeartRateData.Any())
+                                {
+                                    elementsForDay.Add(new Paragraph("Ritmo Cardíaco:", smallBoldFont));
+                                    foreach (var hr in diaData.HeartRateData)
+                                    {
+                                        elementsForDay.Add(new Paragraph($"  Hora: {hr.Time:HH:mm:ss}, BPM: {hr.BPM}", listItemFont));
+                                    }
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                            case HealthDataType.Temperature:
+                                if (diaData.TemperatureData != null && diaData.TemperatureData.Any())
+                                {
+                                    elementsForDay.Add(new Paragraph("Temperatura (mediciones):", smallBoldFont));
+                                    foreach (var temp in diaData.TemperatureData)
+                                    {
+                                        elementsForDay.Add(new Paragraph($"  Hora: {temp.Time:HH:mm:ss}, Temp: {temp.Temperature:F1}°C", listItemFont));
+                                    }
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                            case HealthDataType.ActiveCalories:
+                                if (diaData.ActiveCalories.HasValue)
+                                {
+                                    elementsForDay.Add(new Paragraph($"Calorías Activas: {diaData.ActiveCalories.Value:F0} kcal", normalFont));
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                            case HealthDataType.BloodGlucose:
+                                if (diaData.BloodGlucoseData != null && diaData.BloodGlucoseData.Any())
+                                {
+                                    elementsForDay.Add(new Paragraph("Glucosa en Sangre:", smallBoldFont));
+                                    foreach (var bg in diaData.BloodGlucoseData)
+                                    {
+                                        elementsForDay.Add(new Paragraph($"  Hora: {bg.Time:HH:mm:ss}, Glucosa: {bg.BloodGlucose:F1} mg/dL", listItemFont));
+                                    }
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                            case HealthDataType.BloodPressure:
+                                if (diaData.BloodPressureData != null && diaData.BloodPressureData.Any())
+                                {
+                                    elementsForDay.Add(new Paragraph("Presión Arterial:", smallBoldFont));
+                                    foreach (var bp in diaData.BloodPressureData)
+                                    {
+                                        elementsForDay.Add(new Paragraph($"  Hora: {bp.Time:HH:mm:ss}, Sistólica: {bp.Systolic:F0}, Diastólica: {bp.Diastolic:F0} mmHg", listItemFont));
+                                    }
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                            case HealthDataType.OxygenSaturation:
+                                if (diaData.OxygenSaturationData != null && diaData.OxygenSaturationData.Any())
+                                {
+                                    elementsForDay.Add(new Paragraph("Saturación de Oxígeno (SpO2):", smallBoldFont));
+                                    foreach (var oxy in diaData.OxygenSaturationData)
+                                    {
+                                        elementsForDay.Add(new Paragraph($"  Hora: {oxy.Time:HH:mm:ss}, Porcentaje: {oxy.Percentage:F0}%", listItemFont));
+                                    }
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                            case HealthDataType.RespiratoryRate:
+                                if (diaData.RespiratoryRateData != null && diaData.RespiratoryRateData.Any())
+                                {
+                                    elementsForDay.Add(new Paragraph("Frecuencia Respiratoria:", smallBoldFont));
+                                    foreach (var rr in diaData.RespiratoryRateData)
+                                    {
+                                        elementsForDay.Add(new Paragraph($"  Hora: {rr.Time:HH:mm:ss}, Tasa: {rr.Rate:F0} rpm", listItemFont));
+                                    }
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                         
+                            case HealthDataType.AverageHeartRate:
+                                if (diaData.AvgHeartRate.HasValue)
+                                {
+                                    elementsForDay.Add(new Paragraph($"Ritmo Cardíaco Promedio: {diaData.AvgHeartRate.Value:F0} BPM", normalFont));
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                            case HealthDataType.BodyTemperature:
+                                if (diaData.BodyTemperature.HasValue)
+                                {
+                                    elementsForDay.Add(new Paragraph($"Temperatura Corporal (General del día): {diaData.BodyTemperature.Value:F1}°C", normalFont));
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                            case HealthDataType.MaxHeartRate:
+                                if (diaData.MaxHeartRate.HasValue)
+                                {
+                                    elementsForDay.Add(new Paragraph($"Ritmo Cardíaco Máximo: {diaData.MaxHeartRate.Value:F0} BPM", normalFont));
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                            case HealthDataType.MinHeartRate:
+                                if (diaData.MinHeartRate.HasValue)
+                                {
+                                    elementsForDay.Add(new Paragraph($"Ritmo Cardíaco Mínimo: {diaData.MinHeartRate.Value:F0} BPM", normalFont));
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                            case HealthDataType.RestingHeartRate:
+                                if (diaData.RestingHeartRate.HasValue)
+                                {
+                                    elementsForDay.Add(new Paragraph($"Ritmo Cardíaco en Reposo: {diaData.RestingHeartRate.Value:F0} BPM", normalFont));
+                                    dataFoundForDay = true;
+                                }
+                                break;
+                            default:
+                                elementsForDay.Add(new Paragraph("Tipo de dato no soportado para la visualización detallada.", normalFont));
+                                dataFoundForDay = true;
+                                break;
+                        }
+
+                        if (dataFoundForDay)
+                        {
+                            anyDataFoundForTypeAcrossAllDays = true;
+                            document.Add(dateParagraph);
+                            foreach (var element in elementsForDay)
+                            {
+                                document.Add(element);
+                            }
+                            document.Add(new Paragraph(" "));
+                        }
+                    }
+
+                    if (!anyDataFoundForTypeAcrossAllDays)
+                    {
+                        document.Add(new Paragraph($"No se encontraron datos de '{dataTypeFriendlyName}' para ninguna fecha.", normalFont));
+                    }
+                }
+
+                document.Close();
+                writer.Close();
+
+                return new PdfOutputDTO { PdfBytes = ms.ToArray() };
+            }
+        }
+        private bool HasDataForType(HealthDataOutputModel diaData, HealthDataType dataType)
+        {
+            switch (dataType)
+            {
+                case HealthDataType.Steps: return diaData.Steps.HasValue;
+                case HealthDataType.HeartRate: return diaData.HeartRateData != null && diaData.HeartRateData.Any();
+                case HealthDataType.Temperature: return diaData.TemperatureData != null && diaData.TemperatureData.Any();
+                case HealthDataType.ActiveCalories: return diaData.ActiveCalories.HasValue;
+                case HealthDataType.BloodGlucose: return diaData.BloodGlucoseData != null && diaData.BloodGlucoseData.Any();
+                case HealthDataType.BloodPressure: return diaData.BloodPressureData != null && diaData.BloodPressureData.Any();
+                case HealthDataType.OxygenSaturation: return diaData.OxygenSaturationData != null && diaData.OxygenSaturationData.Any();
+                case HealthDataType.RespiratoryRate: return diaData.RespiratoryRateData != null && diaData.RespiratoryRateData.Any();
+                case HealthDataType.Sleep: return diaData.SleepData != null;
+                case HealthDataType.AverageHeartRate: return diaData.AvgHeartRate.HasValue;
+                case HealthDataType.BodyTemperature: return diaData.BodyTemperature.HasValue;
+                case HealthDataType.MaxHeartRate: return diaData.MaxHeartRate.HasValue;
+                case HealthDataType.MinHeartRate: return diaData.MinHeartRate.HasValue;
+                case HealthDataType.RestingHeartRate: return diaData.RestingHeartRate.HasValue;
+                default: return false;
+            }
+        }
+
+
+        // Método auxiliar para obtener un nombre legible del tipo de dato
+        private string GetDataTypeFriendlyName(HealthDataType dataType)
+        {
+            switch (dataType)
+            {
+                case HealthDataType.Steps: return "Pasos";
+                case HealthDataType.HeartRate: return "Ritmo Cardíaco";
+                case HealthDataType.Temperature: return "Temperatura";
+                case HealthDataType.ActiveCalories: return "Calorías Activas";
+                case HealthDataType.BloodGlucose: return "Glucosa en Sangre";
+                case HealthDataType.BloodPressure: return "Presión Arterial";
+                case HealthDataType.OxygenSaturation: return "Saturación de Oxígeno";
+                case HealthDataType.RespiratoryRate: return "Frecuencia Respiratoria";
+                case HealthDataType.Sleep: return "Sueño";
+                case HealthDataType.AverageHeartRate: return "Ritmo Cardíaco Promedio";
+                case HealthDataType.BodyTemperature: return "Temperatura Corporal General";
+                case HealthDataType.MaxHeartRate: return "Ritmo Cardíaco Máximo";
+                case HealthDataType.MinHeartRate: return "Ritmo Cardíaco Mínimo";
+                case HealthDataType.RestingHeartRate: return "Ritmo Cardíaco en Reposo";
+                default: return "Dato Desconocido";
+            }
+        }
+
+    public async Task<PdfOutputDTO> GeneratePdfAsync(PdfInputDTO request)
         {
             // Se obtiene el objeto con los datos completos.
             FullDataOutputDTO fullData = await this.GetFullHealthDataAsync(request.Credentials);

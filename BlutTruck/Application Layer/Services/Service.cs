@@ -33,7 +33,7 @@
             return await _healthDataRepository.VerifyIdTokenAsync(idToken);
         }
 
-        public async  Task<DeleteUserOutputDTO> DeleteDataUserAsync(DeleteUserInputDTO request)
+        public async Task<DeleteUserOutputDTO> DeleteDataUserAsync(DeleteUserInputDTO request)
         {
             return await _healthDataRepository.DeleteDataUserAsync(request);
         }
@@ -137,7 +137,7 @@
             return _healthDataRepository.DeleteCodeConnectionAsync(request);
 
         }
-       public Task<GetConnectionOutputDTO> GetCodeConnectionAsync(DeleteCodeConnectionInputDTO request)
+        public Task<GetConnectionOutputDTO> GetCodeConnectionAsync(DeleteCodeConnectionInputDTO request)
         {
             return _healthDataRepository.GetCodeConnectionAsync(request);
         }
@@ -180,6 +180,10 @@
         public Task<PdfOutputDTO> GeneratePdfAsync(PdfInputDTO request)
         {
             return _healthDataRepository.GeneratePdfAsync(request);
+        }
+        public Task<PdfOutputDTO> GeneratePdfByDataTypeAsync(PdfInputByDataTypeDTO request)
+        {
+            return _healthDataRepository.GeneratePdfByDataTypeAsync(request);
         }
     }
 }
