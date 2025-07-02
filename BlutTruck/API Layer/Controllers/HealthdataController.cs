@@ -441,7 +441,7 @@ namespace Api.Controllers
             }
         }
 
-        [HttpPost("change")]
+        [HttpPost("forgot-password")]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequestInputDTO request)
         {
             if (string.IsNullOrEmpty(request.email))
@@ -452,7 +452,7 @@ namespace Api.Controllers
             try
             {
                 await _healthDataService.ChangePasswordAsync(request);
-                return Ok(new { Message = "Contraseña actualizada exitosamente." });
+                return Ok(new { Message = "Correo enviado exitosamente." });
             }
             catch (Exception ex)
             {
@@ -831,6 +831,63 @@ namespace Api.Controllers
                     return NotFound(new { Message = "No se encontró el estado de conexión." });
 
                 return Ok(new { ConnectionStatus = connectionStatus.ConnectionStatus });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Error al obtener el estado de conexión: {ex.Message}" });
+            }
+        }
+
+        [HttpPost("getfavorites")]
+        public async Task<IActionResult> GetFavoritesAsync([FromBody] UserCredentials request)
+        {
+            if (request == null || string.IsNullOrEmpty(request.UserId))
+                return BadRequest(new { Message = "El UserId es requerido." });
+
+            try
+            {
+                if (request.IdToken == "string" || request.IdToken == null)
+                {
+                    request.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                var connectionStatus = await _healthDataService.GetFavoritesAsync(request);
+                if (connectionStatus == null)
+                    return NotFound(new { Message = "No se encontró el estado de conexión." });
+
+                connectionStatus.Success = true;
+                return Ok(connectionStatus);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Error al obtener el estado de conexión: {ex.Message}" });
+            }
+        }
+
+        [HttpPost("setfavorites")]
+        public async Task<IActionResult> SetFavoritesAsync([FromBody] SetFavoritesInputDTO request)
+        {
+            if (request == null || string.IsNullOrEmpty(request.Credentials.UserId))
+                return BadRequest(new { Message = "El UserId es requerido." });
+
+            try
+            {
+                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
+                {
+                    request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
+                    if (string.IsNullOrEmpty(request.Credentials.IdToken))
+                    {
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                    }
+                }
+                var connectionStatus = await _healthDataService.SetFavoritesAsync(request);
+                if (connectionStatus == null)
+                    return NotFound(new { Message = "No se encontró el estado de conexión." });
+
+                return Ok(connectionStatus);
             }
             catch (Exception ex)
             {

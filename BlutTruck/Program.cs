@@ -75,13 +75,15 @@ builder.Services.AddCors(options =>
 
 
 // **6. Firebase Initialization**
-var credential = GoogleCredential.FromFile(Path.Combine(Directory.GetCurrentDirectory(), "firebase-config.json"));
-
-FirebaseApp.Create(new AppOptions()
+string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+string rutajson = Path.Combine(baseDir, "Recursos", "proyectocsharp-tfg-firebase-adminsdk-fbsvc-a393e8de19.json"); // Asegúrate que el nombre/ruta es correcto
+if (FirebaseApp.DefaultInstance == null)
 {
-    Credential = credential
-});
-
+    FirebaseApp.Create(new AppOptions()
+    {
+        Credential = GoogleCredential.FromFile(rutajson),
+    });
+}
 // **7. Build the application**
 var app = builder.Build();
 

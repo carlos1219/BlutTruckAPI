@@ -185,6 +185,14 @@
         {
             return _healthDataRepository.GeneratePdfByDataTypeAsync(request);
         }
+        public Task<GetFavoritesOutputDTO> GetFavoritesAsync(UserCredentials request)
+        {
+            return _healthDataRepository.GetFavoritesAsync(request);
+        }
+        public Task<BaseOutputDTO> SetFavoritesAsync(SetFavoritesInputDTO request)
+        {
+            return _healthDataRepository.SetFavoritesAsync(request);
+        }
     }
 }
 

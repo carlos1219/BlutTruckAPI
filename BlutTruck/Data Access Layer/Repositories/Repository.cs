@@ -25,6 +25,7 @@ using Newtonsoft.Json.Linq;
 using System.Net;
 using static Google.Rpc.Context.AttributeContext.Types;
 using BlutTruck.Application_Layer.Enums;
+using System.Runtime.InteropServices.WindowsRuntime;
 
 
 namespace BlutTruck.Data_Access_Layer.Repositories
@@ -1185,6 +1186,91 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
         }
 
+        public async Task<GetFavoritesOutputDTO> GetFavoritesAsync(UserCredentials request)
+        {
+            var response = new GetFavoritesOutputDTO();
+            try
+            {
+                var firebaseClient = new FirebaseClient(
+                    _databaseUrl,
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.IdToken) });
+
+                var connectionRef = firebaseClient
+                    .Child("healthData")
+                    .Child(request.UserId)
+                    .Child("datos_personales")
+                    .Child("Favoritos");
+
+                var connectionStatus = await connectionRef.OnceSingleAsync<List<string>>();
+                response.Favorites = connectionStatus ?? new List<string>();
+                return response;
+            }
+            catch (Firebase.Database.FirebaseException ex)
+            {
+                response.Success = false;
+                response.ErrorMessage = $"Error en Firebase: {ex.Message}";
+                return response;
+            }
+            catch (Exception ex)
+            {
+                response.Success = false;
+                response.ErrorMessage = $"Error inesperado: {ex.Message}";
+                return response;
+            }
+        }
+
+        /// <summary>
+        /// Escribe o sobrescribe la lista de tarjetas favoritas de un usuario en Firebase.
+        /// </summary>
+        /// <param name="request">Contiene las credenciales y la nueva lista de favoritos.</param>
+        /// <returns>Un DTO que indica si la operación fue exitosa.</returns>
+        public async Task<BaseOutputDTO> SetFavoritesAsync(SetFavoritesInputDTO request)
+        {
+            var response = new BaseOutputDTO();
+            try
+            {
+                // Validación básica de la entrada
+                if (request.Favorites == null)
+                {
+                    response.Success = false;
+                    response.ErrorMessage = "La lista de favoritos no puede ser nula.";
+                    return response;
+                }
+
+                // La configuración del cliente de Firebase es idéntica a tu método GET
+                var firebaseClient = new FirebaseClient(
+                    _databaseUrl,
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+
+                // La referencia al nodo de Firebase también es la misma
+                var favoritesRef = firebaseClient
+                    .Child("healthData")
+                    .Child(request.Credentials.UserId)
+                    .Child("datos_personales")
+                    .Child("Favoritos");
+
+                await favoritesRef.PutAsync(request.Favorites);
+
+                // Si llegamos aquí, la operación fue exitosa.
+                response.Success = true;
+                return response;
+            }
+            catch (Firebase.Database.FirebaseException ex)
+            {
+                // Manejo de errores específico de Firebase
+                response.Success = false;
+                response.ErrorMessage = $"Error en Firebase: {ex.Message}";
+                return response;
+            }
+            catch (Exception ex)
+            {
+                // Manejo de errores genéricos
+                response.Success = false;
+                response.ErrorMessage = $"Error inesperado: {ex.Message}";
+                return response;
+            }
+        }
+
         public async Task<RegisterConnectionOutputDTO> RegisterConnectionAsync(RegisterConnectionInputDTO request)
         {
             var response = new RegisterConnectionOutputDTO();
@@ -1588,19 +1674,39 @@ namespace BlutTruck.Data_Access_Layer.Repositories
         public async Task<DeleteUserOutputDTO> DeleteDataUserAsync(DeleteUserInputDTO request)
         {
             var response = new DeleteUserOutputDTO();
+            FirebaseClient firebaseClient = null; // Declare outside try for wider scope
+
             try
             {
                 // Obtén el token para autenticar la operación sobre la base de datos.
-                string token = await GetTokenAsync();
-                var firebaseClient = new FirebaseClient(
+                string token = await GetTokenAsync(); // Use the fetched token
+
+                firebaseClient = new FirebaseClient(
                     _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Token) }
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(token) } // Use the fetched token
                 );
-                await firebaseClient
+
+                // --- Step 1: Retrieve all data for the user ---
+                var userHealthDataPath = $"healthData/{request.UserId}";
+                var dataToArchive = await firebaseClient
                     .Child("healthData")
                     .Child(request.UserId)
-                    .Child("datos_personales")
-                    .DeleteAsync();
+                    .OnceAsJsonAsync(); // Get all data under the user's healthData node
+
+                if (dataToArchive == null)
+                {
+                    response.Success = false;
+                    response.ErrorMessage = "No data found for the specified user to delete.";
+                    return response;
+                }
+
+                // --- Step 2: Store the retrieved data in the "deletedHealthData" path ---
+                var deletedDataPath = $"deletedHealthData/{request.UserId}_{DateTime.UtcNow:yyyyMMddHHmmss}"; // Unique identifier for archived data
+                await firebaseClient
+                   .Child("healthData")
+                   .Child(request.UserId)
+                   .Child("datos_personales")
+                   .DeleteAsync();
                 response.Success = true;
                 await firebaseClient
                 .Child("healthData")
@@ -1717,7 +1823,6 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
             return response;
         }
-
         public async Task<DeleteUserOutputDTO> DeleteUserAsync(DeleteUserInputDTO request)
         {
             var response = new DeleteUserOutputDTO();
