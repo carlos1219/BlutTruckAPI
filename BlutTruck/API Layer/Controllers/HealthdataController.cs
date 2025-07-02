@@ -27,29 +27,28 @@ namespace Api.Controllers
         [HttpPost("write")]
         public async Task<IActionResult> WriteData([FromBody] WriteDataInputDTO request)
         {
-            if (request == null ||
-                request.Credentials == null ||
-                string.IsNullOrEmpty(request.Credentials.UserId))
+            if (request == null || request.Credentials == null || string.IsNullOrEmpty(request.Credentials.UserId))
             {
                 return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta el UserId." });
             }
 
             try
             {
-
-                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
+                if (string.IsNullOrEmpty(request.Credentials.IdToken) || request.Credentials.IdToken == "string")
                 {
                     request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
                     if (string.IsNullOrEmpty(request.Credentials.IdToken))
                     {
-                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación de administrador." });
                     }
                 }
                 await _healthDataService.WriteDataAsync(request);
-                return Ok(new { Message = "Datos guardados correctamente." });
+
+                return Ok(new { Message = "Datos procesados correctamente." });
             }
             catch (Exception ex)
             {
+                // El método del repositorio lanzará una excepción si hay problemas de seguridad o de otro tipo.
                 return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
             }
         }
@@ -57,26 +56,24 @@ namespace Api.Controllers
         [HttpPost("writeWeb")]
         public async Task<IActionResult> WriteDataWeb([FromBody] WriteDataInputDTO request)
         {
-            if (request == null ||
-                request.Credentials == null ||
-                string.IsNullOrEmpty(request.Credentials.UserId))
+            if (request == null || request.Credentials == null || string.IsNullOrEmpty(request.Credentials.UserId))
             {
                 return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta el UserId." });
             }
 
             try
             {
-
-                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
+                if (string.IsNullOrEmpty(request.Credentials.IdToken) || request.Credentials.IdToken == "string")
                 {
                     request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
                     if (string.IsNullOrEmpty(request.Credentials.IdToken))
                     {
-                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación de administrador." });
                     }
                 }
                 await _healthDataService.WriteDataWebAsync(request);
-                return Ok(new { Message = "Datos guardados correctamente." });
+
+                return Ok(new { Message = "Datos procesados correctamente." });
             }
             catch (Exception ex)
             {
@@ -87,26 +84,23 @@ namespace Api.Controllers
         [HttpPost("writePrediction")]
         public async Task<IActionResult> writePrediction([FromBody] PredictionInputDTO request)
         {
-            if (request == null ||
-                request.Credentials == null ||
-                string.IsNullOrEmpty(request.Credentials.UserId))
+            if (request == null || request.Credentials == null || string.IsNullOrEmpty(request.Credentials.UserId))
             {
                 return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta el UserId." });
             }
 
             try
             {
-
-                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
+                if (string.IsNullOrEmpty(request.Credentials.IdToken) || request.Credentials.IdToken == "string")
                 {
                     request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
                     if (string.IsNullOrEmpty(request.Credentials.IdToken))
                     {
-                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación de administrador." });
                     }
                 }
                 await _healthDataService.writePredictionAsync(request);
-                return Ok(new { Message = "Datos guardados correctamente." });
+                return Ok(new { Message = "Datos procesados correctamente." });
             }
             catch (Exception ex)
             {
@@ -115,27 +109,26 @@ namespace Api.Controllers
         }
 
         [HttpPost("writeAdmin")]
-        public async Task<IActionResult> writePrediction([FromBody] AdminInputDTO request)
+        public async Task<IActionResult> writeAdmin([FromBody] AdminInputDTO request)
         {
-            if (request == null ||
-                request.Credentials == null ||
-                string.IsNullOrEmpty(request.Credentials.UserId))
+            if (request == null || request.Credentials == null || string.IsNullOrEmpty(request.Credentials.UserId))
             {
                 return BadRequest(new { Message = "El cuerpo de la solicitud es inválido o falta el UserId." });
             }
 
             try
             {
-                if (request.Credentials.IdToken == "string" || request.Credentials.IdToken == null)
+                if (string.IsNullOrEmpty(request.Credentials.IdToken) || request.Credentials.IdToken == "string")
                 {
                     request.Credentials.IdToken = await _healthDataService.AuthenticateAndGetTokenAsync();
                     if (string.IsNullOrEmpty(request.Credentials.IdToken))
                     {
-                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación." });
+                        return Unauthorized(new { Message = "No se pudo generar el token de autenticación de administrador." });
                     }
                 }
                 await _healthDataService.writeAdminAsync(request);
-                return Ok(new { Message = "Datos guardados correctamente." });
+
+                return Ok(new { Message = "Datos procesados correctamente." });
             }
             catch (Exception ex)
             {
@@ -229,7 +222,6 @@ namespace Api.Controllers
                 return StatusCode(500, new { Message = $"Ocurrió un error: {ex.Message}" });
             }
         }
-
 
         [HttpPost("deleteCodeConnection")]
         public async Task<IActionResult> DeleteCodeConnection([FromBody] DeleteCodeConnectionInputDTO request)

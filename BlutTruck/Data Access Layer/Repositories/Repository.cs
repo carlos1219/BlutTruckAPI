@@ -26,6 +26,7 @@ using System.Net;
 using static Google.Rpc.Context.AttributeContext.Types;
 using BlutTruck.Application_Layer.Enums;
 using System.Runtime.InteropServices.WindowsRuntime;
+using Org.BouncyCastle.Asn1.Ocsp;
 
 
 namespace BlutTruck.Data_Access_Layer.Repositories
@@ -53,18 +54,35 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             _authClient = new FirebaseAuthClient(config);
         }
 
+       
+
         public async Task<string> GetTokenAsync()
         {
-            var firebaseAuthConfig = new FirebaseAuthConfig
-            {
-                ApiKey = API_KEY,
-                AuthDomain = AUTH_DOMAIN,
-                Providers = new FirebaseAuthProvider[] { new EmailProvider() }
-            };
+            var adminUid = "server-admin-uid";
+            var additionalClaims = new Dictionary<string, object>() { { "is_admin", true } };
+            string customToken = await FirebaseAuth.DefaultInstance.CreateCustomTokenAsync(adminUid, additionalClaims);
+            string adminIdToken = await ExchangeCustomTokenForIdTokenAsync(customToken); // Usa el método auxiliar que ya creamos
+            return adminIdToken;
+        }
 
-            var client = new FirebaseAuthClient(firebaseAuthConfig);
-            var userCredential = await client.SignInWithEmailAndPasswordAsync(_apiSettings.Value.Email, _apiSettings.Value.Password);
-            return await userCredential.User.GetIdTokenAsync();
+        // No olvides el método auxiliar para canjear el token
+        private async Task<string> ExchangeCustomTokenForIdTokenAsync(string customToken)
+        {
+            using (var httpClient = new HttpClient())
+            {
+                var requestUri = $"https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={API_KEY}";
+                var requestPayload = new { token = customToken, returnSecureToken = true };
+                var jsonPayload = JsonConvert.SerializeObject(requestPayload);
+                var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+                var response = await httpClient.PostAsync(requestUri, content);
+                if (response.IsSuccessStatusCode)
+                {
+                    var responseBody = await response.Content.ReadAsStringAsync();
+                    var responseData = JsonConvert.DeserializeObject<dynamic>(responseBody);
+                    return responseData.idToken;
+                }
+                return null;
+            }
         }
 
         public async Task<string> VerifyIdTokenAsync(string idToken)
@@ -76,55 +94,91 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
         public async Task WriteDataWebAsync(WriteDataInputDTO request)
         {
-            var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
-            var firebaseClient = new FirebaseClient(
-                _databaseUrl,
-                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
-            var dto = new GetConnectionStatusInputDTO
+            var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+            bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+
+            FirebaseClient client;
+
+            // Si es admin, creamos un cliente autenticado con su propio token de admin.
+            if (isTokenFromAdmin)
             {
-                Credentials = new UserCredentials
+                Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+            }
+            // Si es un usuario normal, verificamos seguridad y usamos su token.
+            else
+            {
+                if (decodedToken.Uid != request.Credentials.UserId)
                 {
-                    UserId = request.Credentials.UserId,
-                    IdToken = request.Credentials.IdToken
+                    throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
                 }
-            };
 
+                // Comprobación de conexión que ya tenías
+                var status = await GetConnectionStatusAsync(new GetConnectionStatusInputDTO { Credentials = request.Credentials });
+                if (status.ConnectionStatus != 1)
+                {
+                    Console.WriteLine("La conexión del usuario no está activa. No se escriben los datos.");
+                    return; // No se escriben los datos si el estado no es 1
+                }
 
-                await firebaseClient
-              .Child("healthData")
-              .Child(request.Credentials.UserId)
-              .Child("dias")
-              .Child(currentDate)
-              .PutAsync(request.HealthData);
+                client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+            }
+
+            // La lógica de escritura es la misma para ambos, ya que el 'client' está correctamente autenticado.
+            var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            await client
+                .Child("healthData")
+                .Child(request.Credentials.UserId)
+                .Child("dias")
+                .Child(currentDate)
+                .PutAsync(request.HealthData);
+
+            Console.WriteLine($"Datos guardados correctamente para {request.Credentials.UserId}.");
         }
 
         public async Task WriteDataAsync(WriteDataInputDTO request)
         {
-            var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
-            var firebaseClient = new FirebaseClient(
-                _databaseUrl,
-                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
-            var dto = new GetConnectionStatusInputDTO
+            var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+            bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+
+            FirebaseClient client;
+
+            // Si es admin, creamos un cliente autenticado con su propio token de admin.
+            if (isTokenFromAdmin)
             {
-                Credentials = new UserCredentials
+                Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+            }
+            // Si es un usuario normal, verificamos seguridad y usamos su token.
+            else
+            {
+                if (decodedToken.Uid != request.Credentials.UserId)
                 {
-                    UserId = request.Credentials.UserId,
-                    IdToken = request.Credentials.IdToken
+                    throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
                 }
-            };
 
+                // Comprobación de conexión que ya tenías
+                var status = await GetConnectionStatusAsync(new GetConnectionStatusInputDTO { Credentials = request.Credentials });
+                if (status.ConnectionStatus != 1)
+                {
+                    Console.WriteLine("La conexión del usuario no está activa. No se escriben los datos.");
+                    return; // No se escriben los datos si el estado no es 1
+                }
 
-            GetConnectionStatusOutputDTO status = await  GetConnectionStatusAsync(dto);
-            if( 1 == status.ConnectionStatus)
-            {
-                await firebaseClient
+                client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+            }
+
+            var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
+         
+                await client
               .Child("healthData")
               .Child(request.Credentials.UserId)
               .Child("dias")
               .Child(currentDate)
               .PutAsync(request.HealthData);
-            }
-        }
+            Console.WriteLine($"Datos guardados correctamente para {request.Credentials.UserId}.");
+
+    }
 
         public async Task writePredictionAsync(PredictionInputDTO request)
         {
@@ -138,18 +192,35 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
             try
             {
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
 
-                var dtoStatusCheck = new GetConnectionStatusInputDTO
+                FirebaseClient client;
+
+                // Si es admin, creamos un cliente autenticado con su propio token de admin.
+                if (isTokenFromAdmin)
                 {
-                    Credentials = new UserCredentials
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
                     {
-                        UserId = request.Credentials.UserId,
-                        IdToken = request.Credentials.IdToken
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
                     }
-                };
+
+                    // Comprobación de conexión que ya tenías
+                    var status = await GetConnectionStatusAsync(new GetConnectionStatusInputDTO { Credentials = request.Credentials });
+                    if (status.ConnectionStatus != 1)
+                    {
+                        Console.WriteLine("La conexión del usuario no está activa. No se escriben los datos.");
+                        return; // No se escriben los datos si el estado no es 1
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
 
                 var predictionDataToSave = new
                 {
@@ -157,7 +228,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                     Alertas = request.SpecificAlerts
                 };
 
-                await firebaseClient
+                await client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("Prediccion")
@@ -180,16 +251,32 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             }
             try
             {
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
 
-   var pathConnection = $"healthData/{request.UserExtractId}/conexiones/{request.Credentials.UserId}/isAdmin";
-                await firebaseClient.Child(pathConnection).PutAsync<string>(request.AdminId);
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+
+                var pathConnection = $"healthData/{request.UserExtractId}/conexiones/{request.Credentials.UserId}/isAdmin";
+                await client.Child(pathConnection).PutAsync<string>(request.AdminId);
 
                 // Guardar el valor en el nodo isAdmin del usuario conectado
                 var pathMonitor = $"healthData/{request.Credentials.UserId}/monitores/{request.UserExtractId}/isAdmin";
-                await firebaseClient.Child(pathMonitor).PutAsync<string>(request.AdminId);
+                await client.Child(pathMonitor).PutAsync<string>(request.AdminId);
             }
             catch (Exception ex)
             {
@@ -206,11 +293,27 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             {
                 var response = new GetMonitoringUsersOutputDTO();
                 response.MonitoringUsers = new List<MonitorUserModel>();
-                var firebaseClient = new FirebaseClient(
-                 _databaseUrl,
-                 new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
 
-                var monitoringResponse = await firebaseClient
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
+                }
+
+                var monitoringResponse = await client
                     .Child("healthData")
                     .Child(credentials.UserId)
                     .Child("conexiones")
@@ -245,7 +348,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                     PersonalDataModel personalData = null;
                     try
                     {
-                        personalData = await firebaseClient
+                        personalData = await client
                             .Child("healthData")
                             .Child(monitoringUserId)
                             .Child("datos_personales")
@@ -279,12 +382,12 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                     {
                         var monitoredUserId = monitorUser.MonitoringUserId; 
 
-                        var predictionPath = firebaseClient
+                        var predictionPath = client
                             .Child("healthData")
                             .Child(monitoredUserId) 
                             .Child("Prediccion");
 
-                        var namePath = firebaseClient
+                        var namePath = client
                 .Child("healthData")
                 .Child(monitorUser.MonitoringUserId)
                 .Child("datos_personales").Child("Name");
@@ -326,12 +429,28 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
         public async Task<PredictionDataDTO> GetPredictionAsync(UserCredentials credentials)
         {
-            var firebaseClient = new FirebaseClient(
-                _databaseUrl,
-                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
+            var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(credentials.IdToken);
+            bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+            FirebaseClient client;
+
+            if (isTokenFromAdmin)
+            {
+                Console.WriteLine($"Acción de administrador para usuario: {credentials.UserId}");
+                client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
+            }
+            // Si es un usuario normal, verificamos seguridad y usamos su token.
+            else
+            {
+                if (decodedToken.Uid != credentials.UserId)
+                {
+                    throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                }
+
+                client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
+            }
 
             // Construct the path to the user's prediction data
-            var predictionPath = firebaseClient
+            var predictionPath = client
                 .Child("healthData")
                 .Child(credentials.UserId)
                 .Child("Prediccion");
@@ -358,13 +477,29 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
             try
             {
-                // Inicializar cliente de Firebase con autenticación
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
+
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+
 
                 // Intentar obtener los datos del día actual
-                var todayData = await firebaseClient
+                var todayData = await client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("dias")
@@ -381,7 +516,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 }
 
                 // Obtener todos los días disponibles si no hay datos del día actual
-                var allDaysData = await firebaseClient
+                var allDaysData = await client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("dias")
@@ -429,13 +564,29 @@ namespace BlutTruck.Data_Access_Layer.Repositories
         {
             try
             {
-                // Configurar el cliente de Firebase
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
+
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+
 
                 // Construir la ruta y obtener los datos
-                var healthData = await firebaseClient
+                var healthData = await client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("dias")
@@ -463,13 +614,29 @@ namespace BlutTruck.Data_Access_Layer.Repositories
         {
             try
             {
-                // Inicializar cliente de Firebase con autenticación
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
+
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(credentials.IdToken) });
+                }
+
 
                 // Obtener datos personales
-                var personalData = await firebaseClient
+                var personalData = await client
                     .Child("healthData")
                     .Child(credentials.UserId)
                     .Child("datos_personales")
@@ -481,7 +648,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 }
 
                 // Obtener datos de días
-                var daysData = await firebaseClient
+                var daysData = await client
                     .Child("healthData")
                     .Child(credentials.UserId)
                     .Child("dias")
@@ -517,13 +684,29 @@ namespace BlutTruck.Data_Access_Layer.Repositories
         {
             try
             {
-                // Inicializar cliente de Firebase con autenticación
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
+
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+
 
                 // Obtener datos personales
-                var personalData = await firebaseClient
+                var personalData = await client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("datos_personales")
@@ -535,7 +718,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 }
 
                 // Obtener datos de días
-                var daysData = await firebaseClient
+                var daysData = await client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("dias")
@@ -549,7 +732,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 // Construir el objeto final utilizando el DTO
 
 
-                string isAdmin = await firebaseClient
+                string isAdmin = await client
                  .Child("healthData")
                  .Child(request.Credentials.UserId)
                  .Child("monitores")
@@ -969,11 +1152,28 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             var response = new SaveUserProfileOutputDTO();
             try
             {
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
 
-                var profileRef = firebaseClient
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+
+
+                var profileRef = client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("datos_personales");
@@ -1002,11 +1202,28 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             var response = new UpdateConnectionStatusOutputDTO();
             try
             {
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
 
-                var connectionRef = firebaseClient
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+
+
+                var connectionRef = client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("datos_personales")
@@ -1036,12 +1253,29 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             var response = new PersonalAndLatestDayDataOutputDTO();
             try
             {
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
+
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+
 
                 // Obtener datos personales
-                var personalData = await firebaseClient
+                var personalData = await client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("datos_personales")
@@ -1055,7 +1289,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 }
 
                 // Obtener datos de días
-                var daysData = await firebaseClient
+                var daysData = await client
                 .Child("healthData")
                 .Child(request.Credentials.UserId)
                 .Child("dias")
@@ -1117,11 +1351,28 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             var response = new GetPersonalDataOutputDTO();
             try
             {
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
 
-                var personalData = await firebaseClient
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+
+
+                var personalData = await client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("datos_personales")
@@ -1156,11 +1407,28 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             var response = new GetConnectionStatusOutputDTO();
             try
             {
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
 
-                var connectionRef = firebaseClient
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+
+
+                var connectionRef = client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("datos_personales")
@@ -1191,11 +1459,27 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             var response = new GetFavoritesOutputDTO();
             try
             {
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
 
-                var connectionRef = firebaseClient
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.IdToken) });
+                }
+
+                var connectionRef = client
                     .Child("healthData")
                     .Child(request.UserId)
                     .Child("datos_personales")
@@ -1238,12 +1522,29 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 }
 
                 // La configuración del cliente de Firebase es idéntica a tu método GET
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
+
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+
 
                 // La referencia al nodo de Firebase también es la misma
-                var favoritesRef = firebaseClient
+                var favoritesRef = client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("datos_personales")
@@ -1403,15 +1704,31 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             var response = new DeleteConnectionOutputDTO();
             try
             {
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
+
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
 
                 var path = $"healthData/{request.Credentials.UserId}/conexiones/{request.ConnectedUserId}";
-                await firebaseClient.Child(path).DeleteAsync();
+                await client.Child(path).DeleteAsync();
 
                 var pathmonitoring = $"healthData/{request.ConnectedUserId}/monitores/{request.Credentials.UserId}";
-                await firebaseClient.Child(pathmonitoring).DeleteAsync();
+                await client.Child(pathmonitoring).DeleteAsync();
 
                 response.Success = true;
                 response.Message = "Conexión eliminada correctamente";
@@ -1437,9 +1754,19 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
 
                 string token = await GetTokenAsync();
-                var firebaseClient = new FirebaseClient(
-                  _databaseUrl,
-                  new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(token) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(token);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
+
+                if (isTokenFromAdmin)
+                {
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(token) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(token) });
+                }
                 #region profile
                 var profile = new PersonalDataModel
                 {
@@ -1461,7 +1788,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 };
                 #endregion profile
 
-                var profileRef = firebaseClient
+                var profileRef = client
                    .Child("healthData")
                    .Child(userId)
                    .Child("datos_personales");
@@ -1523,7 +1850,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 };
                 #endregion healthData
                 var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
-                await firebaseClient
+                await client
               .Child("healthData")
               .Child(userId)
               .Child("dias")
@@ -1549,9 +1876,19 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
 
                 string token = await GetTokenAsync();
-                var firebaseClient = new FirebaseClient(
-                  _databaseUrl,
-                  new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(token) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(token);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
+
+                if (isTokenFromAdmin)
+                {
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(token) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(token) });
+                }
                 #region profile
                 var profile = new PersonalDataModel
                 {
@@ -1573,7 +1910,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 };
                 #endregion profile
 
-                var profileRef = firebaseClient
+                var profileRef = client
                    .Child("healthData")
                    .Child(userId)
                    .Child("datos_personales");
@@ -1635,7 +1972,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 };
                 #endregion healthData
                 var currentDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
-                await firebaseClient
+                await client
               .Child("healthData")
               .Child(userId)
               .Child("dias")
@@ -1678,12 +2015,10 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
             try
             {
-                // Obtén el token para autenticar la operación sobre la base de datos.
-                string token = await GetTokenAsync(); // Use the fetched token
 
                 firebaseClient = new FirebaseClient(
                     _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(token) } // Use the fetched token
+                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Token) } // Use the fetched token
                 );
 
                 // --- Step 1: Retrieve all data for the user ---
@@ -1912,11 +2247,27 @@ namespace BlutTruck.Data_Access_Layer.Repositories
             response.MonitoringUsers = new List<MonitorUserModel>();
             try
             {
-                var firebaseClient = new FirebaseClient(
-                    _databaseUrl,
-                    new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+                bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+                FirebaseClient client;
 
-                var monitorsData = await firebaseClient
+                if (isTokenFromAdmin)
+                {
+                    Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+                // Si es un usuario normal, verificamos seguridad y usamos su token.
+                else
+                {
+                    if (decodedToken.Uid != request.Credentials.UserId)
+                    {
+                        throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                    }
+
+                    client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+                }
+
+                var monitorsData = await client
                     .Child("healthData")
                     .Child(request.Credentials.UserId)
                     .Child("monitores")
@@ -1956,7 +2307,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                     PersonalDataModel personalData = null;
                     try
                     {
-                        personalData = await firebaseClient
+                        personalData = await client
                             .Child("healthData")
                             .Child(monitoringUserId)
                             .Child("datos_personales")
@@ -2021,12 +2372,29 @@ namespace BlutTruck.Data_Access_Layer.Repositories
 
         public async Task<List<ConnectedUserModel>> GetConnectedUsersAsync(ConnectedUsersInputDTO request)
         {
-            var firebaseClient = new FirebaseClient(
-                _databaseUrl,
-                new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+            var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.Credentials.IdToken);
+            bool isTokenFromAdmin = decodedToken.Claims.TryGetValue("is_admin", out var isAdminClaim) && (bool)isAdminClaim;
+            FirebaseClient client;
+
+            if (isTokenFromAdmin)
+            {
+                Console.WriteLine($"Acción de administrador para usuario: {request.Credentials.UserId}");
+                client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+            }
+            // Si es un usuario normal, verificamos seguridad y usamos su token.
+            else
+            {
+                if (decodedToken.Uid != request.Credentials.UserId)
+                {
+                    throw new Exception($"Error de seguridad: Un usuario intentó escribir en la cuenta de otro.");
+                }
+
+                client = new FirebaseClient(_databaseUrl, new FirebaseOptions { AuthTokenAsyncFactory = () => Task.FromResult(request.Credentials.IdToken) });
+            }
+
 
             // Obtener lista de conexiones del usuario actual
-            var connections = await firebaseClient
+            var connections = await client
                 .Child("healthData")
                 .Child(request.Credentials.UserId)
                 .Child("conexiones")
@@ -2042,7 +2410,7 @@ namespace BlutTruck.Data_Access_Layer.Repositories
                 var connectedUserId = connection.Key;
 
                 // Obtener datos personales del usuario conectado
-                var personalData = await firebaseClient
+                var personalData = await client
                     .Child("healthData")
                     .Child(connectedUserId)
                     .Child("datos_personales")
