@@ -1,22 +1,23 @@
-# 1) Build stage: compila tu solución
+# syntax=docker/dockerfile:1
+
+# 1) Build stage
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copiamos el .sln y el csproj a un lugar temporario
 COPY ["BlutTruck.sln", "./"]
 COPY ["BlutTruck/BlutTruck.csproj", "BlutTruck/"]
-
-# Restauramos paquetes
 RUN dotnet restore "BlutTruck.sln"
 
-# Copiamos todo el código y publicamos en Release
 COPY . .
-RUN dotnet publish "BlutTruck.sln" -c Release -o /app/publish
+RUN dotnet publish "BlutTruck.sln" -c Release -o /app/publish --no-restore
 
-# 2) Runtime stage: empaquetamos solo lo publicado
+# 2) Runtime stage: solo lo publicado, sin privilegios de root
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
+
+# La imagen aspnet 8 incluye el usuario sin privilegios "app" (UID 1654)
+USER app
 
 EXPOSE 3000
 ENTRYPOINT ["dotnet", "BlutTruck.dll"]
