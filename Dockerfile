@@ -12,7 +12,7 @@ COPY . .
 RUN dotnet publish "BlutTruck.sln" -c Release -o /app/publish --no-restore
 
 # 2) Runtime stage: solo lo publicado, sin privilegios de root
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
 
